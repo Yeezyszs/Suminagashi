@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <!-- user-scalable=no + touch-action:none (no CSS) evitam zoom e scroll
+       acidentais durante os gestos de pintura no celular. -->
+  <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+  <title>墨流し — suminagashi</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <!-- O canvas é o protagonista: tela cheia, tudo o mais flutua sobre ele. -->
+  <canvas id="agua"></canvas>
+
+  <h1 id="titulo">墨流し <span>suminagashi</span></h1>
+
+  <p id="dica">toque para pingar · arraste para mover a tinta</p>
+
+  <nav id="barra" aria-label="ferramentas">
+    <div id="paleta"><!-- swatches montados pelo main.js --></div>
+    <div id="divisor" role="presentation"></div>
+    <button id="lavar">lavar</button>
+  </nav>
+
+  <script type="module" src="js/main.js"></script>
+</body>
+</html>

@@ -1,0 +1,9 @@
+{
+  "name": "suminagashi",
+  "private": true,
+  "type": "module",
+  "description": "Suminagashi interativo — marmorização japonesa em Canvas 2D, sem dependências.",
+  "scripts": {
+    "test": "node teste-motor.js"
+  }
+}

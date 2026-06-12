@@ -1,0 +1,157 @@
+/* styles.css — UI mínima e quieta: o canvas é o protagonista. */
+
+:root {
+  /* Paleta provisória (espelha as constantes do main.js). */
+  --papel: #EFE9DC;
+  --tinta: #1C1C1C;
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html,
+body {
+  height: 100%;
+  overflow: hidden;
+  background: var(--papel);
+  /* Serifa de sistema com cara de mincho para o título; nada de webfont. */
+  font-family: "Hiragino Mincho ProN", "Yu Mincho", Georgia, serif;
+  color: var(--tinta);
+}
+
+/* ------------------------------------------------------------------ canvas */
+
+#agua {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  /* Essencial no mobile: sem isso o navegador interpreta o arraste do
+     estilete como scroll/zoom da página. */
+  touch-action: none;
+  cursor: crosshair;
+}
+
+/* ------------------------------------------------------------------ título */
+
+#titulo {
+  position: fixed;
+  top: 1.25rem;
+  left: 1.5rem;
+  font-size: 1.05rem;
+  font-weight: normal;
+  letter-spacing: 0.08em;
+  opacity: 0.55;
+  pointer-events: none; /* nunca atrapalha um gesto que passe por cima */
+  user-select: none;
+}
+
+#titulo span {
+  font-size: 0.7rem;
+  letter-spacing: 0.25em;
+  opacity: 0.8;
+  margin-left: 0.4em;
+}
+
+/* ------------------------------------------------------------- dica efêmera */
+
+#dica {
+  position: fixed;
+  left: 50%;
+  top: 42%;
+  transform: translateX(-50%);
+  font-size: 0.85rem;
+  letter-spacing: 0.12em;
+  opacity: 0.45;
+  pointer-events: none;
+  user-select: none;
+  text-align: center;
+  transition: opacity 0.8s ease;
+}
+
+#dica.escondida {
+  opacity: 0;
+}
+
+/* -------------------------------------------------------- barra de ferramentas */
+
+#barra {
+  position: fixed;
+  bottom: 1.25rem;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 0.9rem;
+  padding: 0.6rem 1rem;
+  border-radius: 999px;
+  /* Translúcida sobre a obra, com leve blur quando o navegador suporta. */
+  background: rgba(239, 233, 220, 0.65);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  box-shadow: 0 2px 14px rgba(28, 28, 28, 0.12);
+}
+
+#paleta {
+  display: flex;
+  gap: 0.65rem;
+}
+
+.cor {
+  width: 1.9rem;
+  height: 1.9rem;
+  border-radius: 50%;
+  border: 1px solid rgba(28, 28, 28, 0.25);
+  background: var(--cor);
+  cursor: pointer;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+.cor.ativa {
+  /* Anel discreto em volta do swatch selecionado. */
+  box-shadow: 0 0 0 2px var(--papel), 0 0 0 3.5px var(--tinta);
+}
+
+.cor:hover {
+  transform: scale(1.12);
+}
+
+#divisor {
+  width: 1px;
+  height: 1.5rem;
+  background: rgba(28, 28, 28, 0.2);
+}
+
+#lavar {
+  border: none;
+  background: none;
+  font-family: inherit;
+  font-size: 0.85rem;
+  letter-spacing: 0.15em;
+  color: var(--tinta);
+  opacity: 0.7;
+  cursor: pointer;
+  padding: 0.25rem 0.4rem;
+}
+
+#lavar:hover {
+  opacity: 1;
+}
+
+/* --------------------------------------------------- prefers-reduced-motion */
+
+@media (prefers-reduced-motion: reduce) {
+  /* Sem animações decorativas: a dica some na hora, swatches não escalam.
+     (O fade do "lavar" também é desativado, no main.js.) */
+  #dica,
+  .cor {
+    transition: none;
+  }
+
+  .cor:hover {
+    transform: none;
+  }
+}
