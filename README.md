@@ -1,12 +1,14 @@
 # 墨流し — suminagashi
 
 Site interativo de *suminagashi* (marmorização japonesa: tinta pingada sobre
-água, movida com um estilete). Arte generativa em HTML, CSS e JavaScript
-vanilla — **zero dependências, zero build, zero framework**.
+água, movida com um estilete). Uma simulação de fluido de verdade rodando na
+GPU — em HTML, CSS e JavaScript vanilla, **zero dependências, zero build,
+zero framework** (os shaders são escritos à mão dentro do projeto).
 
 ## Como rodar
 
-Sirva a pasta com qualquer servidor estático e abra no navegador:
+Sirva a pasta com qualquer servidor estático e abra no navegador
+(requer WebGL2, presente em todo navegador moderno):
 
 ```sh
 npx serve
@@ -18,67 +20,45 @@ npx serve
 
 Funciona com mouse e com toque:
 
-- **toque/clique rápido** — pinga uma gota da cor selecionada;
-- **arrastar** — estilete: puxa a tinta na direção do gesto;
-- **água** (swatch da cor do papel) — pinga uma gota invisível que *empurra*
-  a tinta existente; alterne tinta e água no mesmo ponto para criar os anéis
-  concêntricos do suminagashi clássico;
+- **toque/clique rápido** — pinga uma gota da cor selecionada, que se
+  espalha e empurra a tinta vizinha;
+- **arrastar** — estilete: cria correnteza que carrega a tinta, com
+  momentum e redemoinhos de verdade;
+- **água** (swatch da cor do papel) — gota que só empurra, sem pintar;
+  alterne tinta e água no mesmo ponto para os anéis clássicos;
 - **lavar** — dissolve a obra com um fade suave.
 
-## Testar o motor
+## A física (stable fluids, na GPU)
 
-O motor é matemática pura (sem DOM), então roda direto no Node:
+A água é simulada pelas equações de **Navier-Stokes** para um fluido
+incompressível, pelo método *stable fluids* de Jos Stam (1999). Duas grades
+vivem em texturas WebGL — a **velocidade** da correnteza (grade grossa,
+ela é suave por natureza) e a **tinta** (grade fina, é onde o olho repara)
+— e cada passo da física é um shader que reescreve uma grade inteira, uma
+célula por thread da GPU. Por quadro:
 
-```sh
-node teste-motor.js
-```
+1. **Advecção semi-lagrangiana** — em vez de empurrar valores para frente
+   (instável), cada célula recua pela correnteza e pergunta "que valor
+   estava aqui há um instante?". Nunca explode, só amacia.
+2. **Confinamento de vorticidade** — a advecção numérica borra os
+   redemoinhos pequenos; este passo os detecta (pelo rotacional) e os
+   realimenta. É o que mantém as espirais finas vivas.
+3. **Ondulação** — a "respiração" da água: uma aceleração derivada de uma
+   função de corrente `ψ(x, y, t)` (incompressível por construção) mantém
+   a bacia em movimento perpétuo e sutil, como uma superfície real.
+4. **Projeção de pressão** — calcula a divergência da correnteza, resolve
+   `∇²p = div` por iterações de Jacobi e subtrai o gradiente: o que sobra
+   é incompressível — água que circula sem se acumular nem rarefazer.
+5. A correnteza **carrega a tinta** (advecção de novo, agora do corante).
 
-## A matemática (técnica de Aubrey Jaffer)
+Os gestos viram *splats* gaussianos: a gota pinta corante e injeta um
+empurrão radial (o anel que abre espaço); o estilete injeta correnteza na
+direção do movimento — e a física faz o resto.
 
-Nada de simulação de fluido: cada gota é um **polígono fechado** (um círculo
-de ~120 vértices), e cada ação física vira uma fórmula fechada aplicada a
-todos os vértices de todas as gotas.
-
-**1. Pingar uma gota** de centro `C` e raio `r` empurra cada vértice `P`
-das gotas existentes para longe do centro:
-
-```
-P' = C + (P − C) · sqrt(1 + r² / |P − C|²)
-```
-
-Em palavras: um ponto a distância `d` do centro vai parar a distância
-`sqrt(d² + r²)`. Isso **preserva área** — a tinta deslocada ocupa exatamente
-o espaço antigo mais a área da gota nova, como um líquido incompressível.
-Perto da gota o empurrão é forte; longe, tende a zero.
-
-**2. O estilete** na posição `F`, movendo na direção unitária `M` com
-intensidade `z` (proporcional à velocidade do gesto), arrasta cada vértice
-`P` a distância `d = |P − F|` do dedo:
-
-```
-P' = P + M · z · (λ / (λ + d))²
-```
-
-A tinta sob o dedo acompanha o gesto por inteiro; a influência decai com a
-distância (`λ` ≈ 60px é o raio de influência), o que dá a sensação de um
-estilete fino puxando a superfície.
-
-**3. A água respira.** Num suminagashi real a superfície nunca está
-imóvel; aqui, um campo de correnteza contínuo deriva toda a tinta o tempo
-todo. A velocidade vem de uma *função de corrente* `ψ(x, y, t)` (duas
-ondas senoidais de escalas diferentes, com fases que avançam no tempo):
-
-```
-v = (∂ψ/∂y, −∂ψ/∂x)
-```
-
-Todo campo construído assim é **incompressível** (divergência zero): a
-tinta ondula e vagueia, mas nunca se acumula nem se rarefaz — como um
-líquido de verdade. Com `prefers-reduced-motion` ativo, a água fica parada.
-
-**Reamostragem:** deformações esticam as arestas dos polígonos; arestas
-mais longas que um limiar são subdivididas (ponto médio) para a borda
-continuar lisa, com teto de ~600 vértices por gota para limitar o custo.
+> A primeira versão deste projeto usava outra técnica — o marbling
+> geométrico de Aubrey Jaffer, com gotas como polígonos de borda nítida e
+> fórmulas fechadas. Ela vive no histórico do git, caso um dia exista um
+> "modo anéis nítidos".
 
 ## Estrutura
 
@@ -86,14 +66,13 @@ continuar lisa, com teto de ~600 vértices por gota para limitar o custo.
 index.html
 styles.css
 js/
-  prng.js      # PRNG seedável (mulberry32) — determinismo desde o dia 1
-  engine.js    # motor de marbling — matemática pura, zero DOM/canvas
-  renderer.js  # desenha o estado do motor num canvas 2D
-  input.js     # pointer events → gestos (tap = gota, drag = estilete)
-  main.js      # orquestração, UI, loop de animação
-teste-motor.js # verificação do motor em Node, sem framework
+  prng.js     # PRNG seedável (mulberry32) — determinismo desde o dia 1
+  fluido.js   # motor: solver de Navier-Stokes em WebGL2 + shaders
+  input.js    # pointer events → gestos (tap = gota, drag = estilete)
+  main.js     # orquestração, UI, loop de animação
 ```
 
-A separação importa: `engine.js` não conhece DOM nem canvas, então modos
-futuros (replay determinístico por seed, export em alta resolução) poderão
-reusar o motor fora do fluxo interativo.
+`fluido.js` conhece WebGL mas não conhece a página: recebe um canvas e
+comandos (pingar, mexer, lavar). Toda aleatoriedade passa pelo PRNG
+seedável de `prng.js` — um modo futuro vai reproduzir obras inteiras a
+partir de um seed compartilhável.

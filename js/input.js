@@ -13,13 +13,10 @@
  *  no celular, onde o dedo sempre demora mais que o clique do mouse). */
 export const LIMIAR_ARRASTE = 6;
 
-/** Teto da intensidade z do estilete (px de deslocamento por passo).
- *  Sem teto, um gesto rápido teleportaria a tinta e quebraria a sensação
- *  contemplativa do estilete. */
-export const Z_MAXIMO = 14;
-
-/** Quanto da velocidade do gesto vira intensidade z. */
-export const GANHO_VELOCIDADE = 0.45;
+/** Teto da rapidez do gesto considerada (px/s). Movimentos mais rápidos
+ *  que isso são tratados como este teto — protege contra velocidades
+ *  absurdas vindas de eventos com timestamps colados. */
+export const VELOCIDADE_MAXIMA = 2500;
 
 /** Fator da média móvel exponencial que suaviza a velocidade do gesto.
  *  Em celulares os pointer events chegam em rajadas com intervalos
@@ -42,10 +39,11 @@ export const SUBPASSO = 8;
  * @param {HTMLElement} alvo
  * @param {{
  *   aoPingar: (x: number, y: number) => void,
- *   aoArrastar: (x: number, y: number, mx: number, my: number, z: number) => void,
+ *   aoArrastar: (x: number, y: number, mx: number, my: number, velPx: number) => void,
  *   aoSoltar: () => void,
- * }} callbacks - aoSoltar dispara ao fim de um ARRASTE (não de um tap);
- *   é o gancho da inércia: a tinta continua deslizando depois do gesto.
+ * }} callbacks - aoArrastar recebe a posição, a direção unitária do gesto
+ *   e a rapidez REAL do dedo em px/s (suavizada); aoSoltar dispara ao fim
+ *   de um arraste (não de um tap).
  */
 export function instalarInput(alvo, { aoPingar, aoArrastar, aoSoltar }) {
   // Estado do gesto em andamento (um ponteiro por vez — multitoque fica
@@ -56,7 +54,8 @@ export function instalarInput(alvo, { aoPingar, aoArrastar, aoSoltar }) {
   let ultimoX = 0;
   let ultimoY = 0;
   let arrastando = false;
-  let zSuavizado = 0;
+  let ultimoTempo = 0;
+  let rapidezSuavizada = 0;
 
   // Movimentos acumulados desde o último quadro. Pointer events podem
   // chegar mais rápido que 60Hz (mouses gamer chegam a 1000Hz); aplicar a
@@ -73,8 +72,9 @@ export function instalarInput(alvo, { aoPingar, aoArrastar, aoSoltar }) {
     alvo.setPointerCapture(e.pointerId);
     inicioX = ultimoX = e.clientX;
     inicioY = ultimoY = e.clientY;
+    ultimoTempo = e.timeStamp;
     arrastando = false;
-    zSuavizado = 0;
+    rapidezSuavizada = 0;
   });
 
   alvo.addEventListener('pointermove', (e) => {
@@ -96,19 +96,21 @@ export function instalarInput(alvo, { aoPingar, aoArrastar, aoSoltar }) {
       arrastando = true;
     }
 
-    // Divide o segmento em sub-passos curtos (ver SUBPASSO). A intensidade
-    // de cada sub-passo é proporcional ao SEU comprimento — assim o quanto
-    // a tinta é puxada depende da distância percorrida pelo dedo, não de
-    // quantos eventos o navegador disparou no caminho.
+    // Rapidez REAL do gesto (px/s), pelo timestamp do evento, suavizada
+    // por média móvel exponencial: o estilete "pega embalo" e desacelera
+    // gradualmente em vez de responder em trancos.
+    const dtEvento = Math.max((e.timeStamp - ultimoTempo) / 1000, 0.001);
+    const rapidezBruta = Math.min(passo / dtEvento, VELOCIDADE_MAXIMA);
+    rapidezSuavizada += (rapidezBruta - rapidezSuavizada) * SUAVIZACAO;
+    ultimoTempo = e.timeStamp;
+
+    // Divide o segmento em sub-passos curtos (ver SUBPASSO), todos com a
+    // mesma velocidade: o estilete toca TODOS os pontos do caminho, sem
+    // importar quantos eventos o navegador disparou.
     const mx = dx / passo;
     const my = dy / passo;
     const numSubpassos = Math.max(1, Math.ceil(passo / SUBPASSO));
     const comprimentoSub = passo / numSubpassos;
-
-    // Suavização exponencial da intensidade: o estilete "pega embalo" e
-    // desacelera gradualmente em vez de responder em trancos.
-    const zBruto = Math.min(comprimentoSub * GANHO_VELOCIDADE, Z_MAXIMO);
-    zSuavizado += (zBruto - zSuavizado) * SUAVIZACAO;
 
     for (let s = 1; s <= numSubpassos; s++) {
       movimentosPendentes.push({
@@ -116,7 +118,7 @@ export function instalarInput(alvo, { aoPingar, aoArrastar, aoSoltar }) {
         y: ultimoY + my * comprimentoSub * s,
         mx,
         my,
-        z: zSuavizado,
+        z: rapidezSuavizada,
       });
     }
 

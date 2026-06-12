@@ -1,0 +1,663 @@
+// fluido.js — motor de suminagashi como simulação de fluido real (WebGL2).
+//
+// A versão anterior deste projeto (preservada no histórico do git) tratava
+// cada gota como um polígono deformado por fórmulas fechadas — o marbling
+// "gráfico" de Aubrey Jaffer, de anéis nítidos. Esta versão simula a FÍSICA
+// da água de verdade: as equações de Navier-Stokes para um fluido
+// incompressível, resolvidas na GPU pelo método "stable fluids" de Jos Stam
+// (1999). A tinta vira um corante difuso carregado pela correnteza: ela se
+// mistura, esfumaça, forma vórtices — o comportamento aquarelado do
+// suminagashi numa bacia real.
+//
+// Por que GPU? A simulação trabalha com duas grades (velocidade e tinta)
+// re-calculadas inteiras a cada quadro, ~10 passadas por quadro sobre
+// centenas de milhares de células. É o tipo de trabalho massivamente
+// paralelo em que uma GPU de celular é centenas de vezes mais rápida que a
+// CPU — por isso este visual só existe em WebGL.
+//
+// O ciclo de um quadro (cada passo é um shader desenhando num framebuffer):
+//
+//   1. ADVECÇÃO da velocidade — a correnteza carrega a si mesma
+//   2. VORTICIDADE — devolve os redemoinhos que a grade borra
+//   3. ONDULAÇÃO — a "respiração" da água (correnteza ambiente sutil)
+//   4. DIVERGÊNCIA + PRESSÃO + PROJEÇÃO — impõe incompressibilidade
+//   5. ADVECÇÃO da tinta — a correnteza carrega o corante
+//
+// Este módulo conhece WebGL mas não conhece a página: recebe o canvas e
+// comandos (pingar, mexer, lavar) e cuida só da física e da imagem.
+
+// ---------------------------------------------------------------------------
+// Constantes da simulação
+// ---------------------------------------------------------------------------
+
+/** Resolução da grade de VELOCIDADE (lado menor, células). A correnteza é
+ *  suave por natureza; uma grade grossa basta e mantém o custo mínimo. */
+export const RES_VELOCIDADE = 144;
+
+/** Resolução da grade de TINTA (lado menor, células). Mais fina que a de
+ *  velocidade: é nela que o olho repara — bordas e filamentos do corante. */
+export const RES_TINTA = 720;
+
+/** Dissipação da velocidade (1/s). A correnteza perde energia devagar:
+ *  valores baixos = a água continua se mexendo muito tempo depois do
+ *  gesto. Calibrado para um deslizar longo mas que assenta — água numa
+ *  bacia rasa, não tempestade. */
+export const DISSIPACAO_VELOCIDADE = 0.45;
+
+/** Dissipação da tinta (1/s). Zero: tinta pingada não evapora — a obra
+ *  fica. (O botão lavar usa outro mecanismo, o desbotamento.) */
+export const DISSIPACAO_TINTA = 0;
+
+/** Iterações de Jacobi do solucionador de pressão. Mais iterações = fluido
+ *  mais rigorosamente incompressível, porém mais caro. ~24 é o ponto doce
+ *  visual: abaixo disso a tinta "infla" perceptivelmente nos gestos. */
+export const ITERACOES_PRESSAO = 24;
+
+/** Força do confinamento de vorticidade. A advecção numérica borra os
+ *  pequenos redemoinhos; este passo os detecta e re-amplifica. É o que
+ *  separa um fluido "vivo", cheio de espirais, de um borrão amortecido. */
+export const VORTICIDADE = 7;
+
+/** Quanto da pressão sobrevive de um quadro para o outro (chute inicial
+ *  do Jacobi — começar perto da solução anterior converge mais rápido). */
+export const RETENCAO_PRESSAO = 0.8;
+
+/** Força do empurrão radial de uma gota nova (unidades da simulação).
+ *  É o que faz a gota abrir espaço, empurrando a tinta vizinha em anel. */
+export const FORCA_GOTA = 90;
+
+// (O estilete não tem constante de força: ele IMPÕE a velocidade do dedo
+// à água sob ele — ver mexer(). Auto-limitado por construção: a tinta
+// nunca corre mais rápido que o gesto.)
+
+/** Ondas da "respiração" da água: função de corrente ψ com duas escalas
+ *  (uma larga e preguiçosa, uma curta que tremula as bordas), fases
+ *  evoluindo em ~20–30s. Mesma matemática da versão CPU deste projeto —
+ *  agora avaliada na GPU, uma célula por thread. As amplitudes são
+ *  ACELERAÇÕES (px/s²): a correnteza ambiente é injetada aos poucos e a
+ *  dissipação a equilibra num vaguear sutil e perpétuo. */
+export const ONDAS = [
+  { amp: 2.6, lx: 420, ly: 360, w1: 0.23, w2: -0.19 },
+  { amp: 1.1, lx: 170, ly: 150, w1: -0.31, w2: 0.26 },
+];
+
+/** Teto de devicePixelRatio (nitidez × custo de rasterização). */
+export const DPR_MAXIMO = 2;
+
+// ---------------------------------------------------------------------------
+// Shaders (GLSL ES 3.0)
+// ---------------------------------------------------------------------------
+
+// Vértice comum a todos os passos: um triângulo que cobre a tela inteira.
+// Todo o trabalho acontece nos fragment shaders, uma célula por pixel.
+const VS_TELA = `#version 300 es
+in vec2 aPos;
+out vec2 vUv;
+void main() {
+  vUv = aPos * 0.5 + 0.5;
+  gl_Position = vec4(aPos, 0.0, 1.0);
+}`;
+
+// ADVECÇÃO semi-lagrangiana (o coração do método de Stam): em vez de
+// empurrar o valor de cada célula para frente (instável), cada célula
+// pergunta "que valor estava aqui um instante atrás?" e busca a resposta
+// RECUANDO pela correnteza: origem = posição − velocidade·dt. A
+// interpolação bilinear da textura faz a mistura suave de graça. É
+// incondicionalmente estável: o fluido nunca explode, só amacia.
+const FS_ADVECCAO = `#version 300 es
+precision highp float;
+in vec2 vUv;
+out vec4 saida;
+uniform sampler2D uVelocidade;
+uniform sampler2D uFonte;
+uniform vec2 uTexel;       // 1/resolução da grade de velocidade
+uniform float uDt;
+uniform float uDissipacao; // perda exponencial por segundo
+void main() {
+  vec2 vel = texture(uVelocidade, vUv).xy;
+  vec2 origem = vUv - uDt * vel * uTexel;
+  vec4 valor = texture(uFonte, origem);
+  saida = valor / (1.0 + uDissipacao * uDt);
+}`;
+
+// DIVERGÊNCIA: mede, célula a célula, quanto a correnteza está "criando"
+// ou "engolindo" fluido (diferenças centrais dos vizinhos). Água real é
+// incompressível: divergência deve ser zero. O que sobrar aqui será
+// removido pelos passos de pressão.
+const FS_DIVERGENCIA = `#version 300 es
+precision highp float;
+in vec2 vUv;
+out vec4 saida;
+uniform sampler2D uVelocidade;
+uniform vec2 uTexel;
+void main() {
+  float E = texture(uVelocidade, vUv + vec2(uTexel.x, 0.0)).x;
+  float O = texture(uVelocidade, vUv - vec2(uTexel.x, 0.0)).x;
+  float N = texture(uVelocidade, vUv + vec2(0.0, uTexel.y)).y;
+  float S = texture(uVelocidade, vUv - vec2(0.0, uTexel.y)).y;
+  saida = vec4(0.5 * (E - O + N - S), 0.0, 0.0, 1.0);
+}`;
+
+// PRESSÃO (uma iteração de Jacobi): resolve ∇²p = divergência por
+// relaxamento — cada célula vira a média dos vizinhos menos a divergência
+// local. Repetido N vezes, converge para o campo de pressão que, subtraído
+// da velocidade, torna o fluido incompressível.
+const FS_PRESSAO = `#version 300 es
+precision highp float;
+in vec2 vUv;
+out vec4 saida;
+uniform sampler2D uPressao;
+uniform sampler2D uDivergencia;
+uniform vec2 uTexel;
+void main() {
+  float E = texture(uPressao, vUv + vec2(uTexel.x, 0.0)).x;
+  float O = texture(uPressao, vUv - vec2(uTexel.x, 0.0)).x;
+  float N = texture(uPressao, vUv + vec2(0.0, uTexel.y)).x;
+  float S = texture(uPressao, vUv - vec2(0.0, uTexel.y)).x;
+  float div = texture(uDivergencia, vUv).x;
+  saida = vec4((E + O + N + S - div) * 0.25, 0.0, 0.0, 1.0);
+}`;
+
+// PROJEÇÃO: subtrai o gradiente da pressão da velocidade. Pelo teorema de
+// Helmholtz-Hodge, o que resta é a parte do campo livre de divergência —
+// a correnteza fisicamente possível.
+const FS_PROJECAO = `#version 300 es
+precision highp float;
+in vec2 vUv;
+out vec4 saida;
+uniform sampler2D uPressao;
+uniform sampler2D uVelocidade;
+uniform vec2 uTexel;
+void main() {
+  float E = texture(uPressao, vUv + vec2(uTexel.x, 0.0)).x;
+  float O = texture(uPressao, vUv - vec2(uTexel.x, 0.0)).x;
+  float N = texture(uPressao, vUv + vec2(0.0, uTexel.y)).x;
+  float S = texture(uPressao, vUv - vec2(0.0, uTexel.y)).x;
+  vec2 vel = texture(uVelocidade, vUv).xy;
+  saida = vec4(vel - 0.5 * vec2(E - O, N - S), 0.0, 1.0);
+}`;
+
+// ROTACIONAL (curl): intensidade de rotação local da correnteza.
+const FS_ROTACIONAL = `#version 300 es
+precision highp float;
+in vec2 vUv;
+out vec4 saida;
+uniform sampler2D uVelocidade;
+uniform vec2 uTexel;
+void main() {
+  float E = texture(uVelocidade, vUv + vec2(uTexel.x, 0.0)).y;
+  float O = texture(uVelocidade, vUv - vec2(uTexel.x, 0.0)).y;
+  float N = texture(uVelocidade, vUv + vec2(0.0, uTexel.y)).x;
+  float S = texture(uVelocidade, vUv - vec2(0.0, uTexel.y)).x;
+  saida = vec4(0.5 * ((E - O) - (N - S)), 0.0, 0.0, 1.0);
+}`;
+
+// CONFINAMENTO DE VORTICIDADE: a advecção numérica dissipa os redemoinhos
+// pequenos (difusão numérica). Este passo encontra onde eles estão (pelo
+// rotacional) e os realimenta com uma força perpendicular ao gradiente da
+// sua intensidade — devolvendo ao fluido as espirais finas que fazem o
+// marmorizado parecer vivo. Técnica de Fedkiw et al. (2001).
+const FS_VORTICIDADE = `#version 300 es
+precision highp float;
+in vec2 vUv;
+out vec4 saida;
+uniform sampler2D uVelocidade;
+uniform sampler2D uRotacional;
+uniform vec2 uTexel;
+uniform float uForca;
+uniform float uDt;
+void main() {
+  float E = texture(uRotacional, vUv + vec2(uTexel.x, 0.0)).x;
+  float O = texture(uRotacional, vUv - vec2(uTexel.x, 0.0)).x;
+  float N = texture(uRotacional, vUv + vec2(0.0, uTexel.y)).x;
+  float S = texture(uRotacional, vUv - vec2(0.0, uTexel.y)).x;
+  float C = texture(uRotacional, vUv).x;
+
+  // Gradiente da |vorticidade|, normalizado: aponta para o centro do
+  // redemoinho mais próximo. A força é perpendicular a ele.
+  vec2 forca = 0.5 * vec2(abs(N) - abs(S), abs(E) - abs(O));
+  forca /= length(forca) + 1e-4;
+  forca *= uForca * C * vec2(1.0, -1.0);
+
+  vec2 vel = texture(uVelocidade, vUv).xy;
+  saida = vec4(vel + forca * uDt, 0.0, 1.0);
+}`;
+
+// ONDULAÇÃO: a "respiração" da água. Mesma ideia da função de corrente ψ
+// da versão CPU: aceleração a = (∂ψ/∂y, −∂ψ/∂x), incompressível por
+// construção, com duas ondas senoidais cujas fases evoluem no tempo. A
+// dissipação da velocidade equilibra essa injeção contínua num vaguear
+// perpétuo e sutil — a bacia nunca está morta.
+const FS_ONDULACAO = `#version 300 es
+precision highp float;
+in vec2 vUv;
+out vec4 saida;
+uniform sampler2D uVelocidade;
+uniform vec2 uDimensao;  // tamanho do canvas em px CSS (ondas medidas em px)
+uniform float uTempo;
+uniform float uDt;
+uniform vec4 uOnda1;     // (amp, kx, ky, —) e fases via uFases
+uniform vec4 uOnda2;
+uniform vec4 uFases;     // (w1a, w2a, w1b, w2b)
+void main() {
+  vec2 p = vUv * uDimensao;
+  vec2 a = vec2(0.0);
+
+  float fx1 = p.x * uOnda1.y + uFases.x * uTempo;
+  float fy1 = p.y * uOnda1.z + uFases.y * uTempo;
+  a += uOnda1.x * vec2(uOnda1.z * sin(fx1) * cos(fy1),
+                       -uOnda1.y * cos(fx1) * sin(fy1));
+
+  float fx2 = p.x * uOnda2.y + uFases.z * uTempo;
+  float fy2 = p.y * uOnda2.z + uFases.w * uTempo;
+  a += uOnda2.x * vec2(uOnda2.z * sin(fx2) * cos(fy2),
+                       -uOnda2.y * cos(fx2) * sin(fy2));
+
+  vec2 vel = texture(uVelocidade, vUv).xy;
+  saida = vec4(vel + a * uDt, 0.0, 1.0);
+}`;
+
+// SPLAT: injeta algo (tinta ou correnteza) num ponto, com queda gaussiana.
+// Modos:
+//   0 — somar vetor à velocidade
+//   1 — pintar cor na tinta (gota: mistura em direção à cor, não soma —
+//       somar saturaria para o branco)
+//   2 — somar empurrão RADIAL à velocidade (gota abrindo espaço em anel)
+//   3 — IMPOR vetor à velocidade (estilete: a água sob o dedo adota a
+//       velocidade do gesto — arrasto sem deslizamento, como um bastão
+//       de verdade na água; auto-limitado, nunca acumula além do gesto)
+const FS_SPLAT = `#version 300 es
+precision highp float;
+in vec2 vUv;
+out vec4 saida;
+uniform sampler2D uAlvo;
+uniform vec2 uPonto;       // centro, em coordenadas de textura
+uniform vec3 uValor;       // vetor (modos 0/2: x,y + força em x) ou cor
+uniform float uRaio;       // raio² gaussiano, corrigido por proporção
+uniform float uProporcao;  // largura/altura do canvas
+uniform int uModo;
+void main() {
+  vec2 d = vUv - uPonto;
+  d.x *= uProporcao;       // sem isso o círculo viraria elipse
+  float g = exp(-dot(d, d) / uRaio);
+  vec4 base = texture(uAlvo, vUv);
+  if (uModo == 0) {
+    saida = vec4(base.xy + uValor.xy * g, 0.0, 1.0);
+  } else if (uModo == 1) {
+    saida = vec4(mix(base.rgb, uValor, clamp(g, 0.0, 1.0)), 1.0);
+  } else if (uModo == 2) {
+    vec2 dir = d / (length(d) + 1e-5);
+    saida = vec4(base.xy + dir * uValor.x * g, 0.0, 1.0);
+  } else {
+    saida = vec4(mix(base.xy, uValor.xy, clamp(g, 0.0, 1.0)), 0.0, 1.0);
+  }
+}`;
+
+// DESBOTAR: mistura a tinta em direção a uma cor fixa (o papel). Usado
+// pelo lavar (fade suave) e, com fator pequeno, para amortecer a pressão
+// entre quadros (mesma matemática, alvo zero).
+const FS_DESBOTAR = `#version 300 es
+precision highp float;
+in vec2 vUv;
+out vec4 saida;
+uniform sampler2D uAlvo;
+uniform vec3 uCor;
+uniform float uFator;
+void main() {
+  vec4 base = texture(uAlvo, vUv);
+  saida = vec4(mix(base.rgb, uCor, uFator), 1.0);
+}`;
+
+// EXIBIÇÃO: leva a textura de tinta à tela.
+const FS_EXIBIR = `#version 300 es
+precision highp float;
+in vec2 vUv;
+out vec4 saida;
+uniform sampler2D uTinta;
+void main() {
+  saida = vec4(texture(uTinta, vUv).rgb, 1.0);
+}`;
+
+// ---------------------------------------------------------------------------
+// Motor
+// ---------------------------------------------------------------------------
+
+/**
+ * Cria o motor de fluido preso a um canvas.
+ *
+ * @param {HTMLCanvasElement} canvas
+ * @param {[number, number, number]} corPapel - RGB do papel em [0, 1]
+ * @returns o motor, ou lança Error se WebGL2 + texturas float não existirem
+ */
+export function criarFluido(canvas, corPapel) {
+  const gl = canvas.getContext('webgl2', {
+    alpha: false,
+    depth: false,
+    stencil: false,
+    antialias: false,
+  });
+  if (!gl) throw new Error('WebGL2 indisponível neste navegador.');
+  // Texturas float de 16 bits: precisamos delas porque velocidade e
+  // pressão têm sinal e ultrapassam [0,1]. Suportado em todo navegador
+  // moderno, mas a verificação evita uma tela silenciosamente preta.
+  if (!gl.getExtension('EXT_color_buffer_float')) {
+    throw new Error('Texturas float não suportadas (EXT_color_buffer_float).');
+  }
+
+  // --- triângulo de tela cheia (3 vértices cobrem tudo; mais simples que
+  //     um quad e sem costura diagonal) -----------------------------------
+  const vao = gl.createVertexArray();
+  gl.bindVertexArray(vao);
+  const vbo = gl.createBuffer();
+  gl.bindBuffer(gl.ARRAY_BUFFER, vbo);
+  gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 3, -1, -1, 3]), gl.STATIC_DRAW);
+  gl.enableVertexAttribArray(0);
+  gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
+
+  // --- compilação dos programas ------------------------------------------
+  function compilar(tipo, fonte) {
+    const s = gl.createShader(tipo);
+    gl.shaderSource(s, fonte);
+    gl.compileShader(s);
+    if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) {
+      throw new Error('Erro de shader: ' + gl.getShaderInfoLog(s));
+    }
+    return s;
+  }
+  const vsComum = compilar(gl.VERTEX_SHADER, VS_TELA);
+
+  function programa(fsFonte) {
+    const p = gl.createProgram();
+    gl.attachShader(p, vsComum);
+    gl.attachShader(p, compilar(gl.FRAGMENT_SHADER, fsFonte));
+    gl.bindAttribLocation(p, 0, 'aPos');
+    gl.linkProgram(p);
+    if (!gl.getProgramParameter(p, gl.LINK_STATUS)) {
+      throw new Error('Erro de link: ' + gl.getProgramInfoLog(p));
+    }
+    // Mapa de uniforms (consultar a cada quadro seria desperdício).
+    const uniforms = {};
+    const n = gl.getProgramParameter(p, gl.ACTIVE_UNIFORMS);
+    for (let i = 0; i < n; i++) {
+      const nome = gl.getActiveUniform(p, i).name;
+      uniforms[nome] = gl.getUniformLocation(p, nome);
+    }
+    return { p, u: uniforms };
+  }
+
+  const progAdveccao = programa(FS_ADVECCAO);
+  const progDivergencia = programa(FS_DIVERGENCIA);
+  const progPressao = programa(FS_PRESSAO);
+  const progProjecao = programa(FS_PROJECAO);
+  const progRotacional = programa(FS_ROTACIONAL);
+  const progVorticidade = programa(FS_VORTICIDADE);
+  const progOndulacao = programa(FS_ONDULACAO);
+  const progSplat = programa(FS_SPLAT);
+  const progDesbotar = programa(FS_DESBOTAR);
+  const progExibir = programa(FS_EXIBIR);
+
+  // --- framebuffers das grades --------------------------------------------
+  function criarAlvo(w, h, formatoInterno, formato, filtro) {
+    const tex = gl.createTexture();
+    gl.bindTexture(gl.TEXTURE_2D, tex);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, filtro);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, filtro);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    gl.texImage2D(gl.TEXTURE_2D, 0, formatoInterno, w, h, 0, formato, gl.HALF_FLOAT, null);
+    const fbo = gl.createFramebuffer();
+    gl.bindFramebuffer(gl.FRAMEBUFFER, fbo);
+    gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, tex, 0);
+    return { tex, fbo, w, h };
+  }
+
+  // Grades com escrita e leitura simultâneas precisam de DUPLO BUFFER
+  // (não se pode ler e escrever a mesma textura num passo): escreve-se na
+  // cópia, troca-se os papéis.
+  function criarDuplo(w, h, fi, f, filtro) {
+    return {
+      lê: criarAlvo(w, h, fi, f, filtro),
+      escreve: criarAlvo(w, h, fi, f, filtro),
+      trocar() {
+        const t = this.lê;
+        this.lê = this.escreve;
+        this.escreve = t;
+      },
+    };
+  }
+
+  let velocidade, tinta, pressao, divergencia, rotacional;
+  let texelVel = [0, 0];
+  let proporcao = 1;
+
+  /** Dimensiona uma grade pela RESOLUÇÃO do lado menor, mantendo a
+   *  proporção do canvas (células sempre quadradas). */
+  function dimensoes(res) {
+    const aspecto = canvas.clientWidth / Math.max(canvas.clientHeight, 1);
+    return aspecto >= 1
+      ? [Math.round(res * aspecto), res]
+      : [res, Math.round(res / aspecto)];
+  }
+
+  function redimensionar() {
+    const dpr = Math.min(window.devicePixelRatio || 1, DPR_MAXIMO);
+    canvas.width = Math.round(canvas.clientWidth * dpr);
+    canvas.height = Math.round(canvas.clientHeight * dpr);
+    proporcao = canvas.clientWidth / Math.max(canvas.clientHeight, 1);
+
+    // Redimensionar descarta a obra (raro: rotação de tela). Preservar o
+    // conteúdo exigiria re-advectar entre grades; não vale a complexidade.
+    const [vw, vh] = dimensoes(RES_VELOCIDADE);
+    const [tw, th] = dimensoes(RES_TINTA);
+    texelVel = [1 / vw, 1 / vh];
+
+    velocidade = criarDuplo(vw, vh, gl.RG16F, gl.RG, gl.LINEAR);
+    tinta = criarDuplo(tw, th, gl.RGBA16F, gl.RGBA, gl.LINEAR);
+    pressao = criarDuplo(vw, vh, gl.R16F, gl.RED, gl.NEAREST);
+    divergencia = criarAlvo(vw, vh, gl.R16F, gl.RED, gl.NEAREST);
+    rotacional = criarAlvo(vw, vh, gl.R16F, gl.RED, gl.NEAREST);
+
+    // A bacia começa como papel limpo.
+    gl.bindFramebuffer(gl.FRAMEBUFFER, tinta.lê.fbo);
+    gl.clearColor(corPapel[0], corPapel[1], corPapel[2], 1);
+    gl.clear(gl.COLOR_BUFFER_BIT);
+  }
+
+  // --- utilitários de passada ----------------------------------------------
+  function passada(prog, alvo) {
+    gl.useProgram(prog.p);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, alvo ? alvo.fbo : null);
+    gl.viewport(0, 0, alvo ? alvo.w : canvas.width, alvo ? alvo.h : canvas.height);
+    gl.drawArrays(gl.TRIANGLES, 0, 3);
+  }
+
+  function ligarTextura(unidade, tex) {
+    gl.activeTexture(gl.TEXTURE0 + unidade);
+    gl.bindTexture(gl.TEXTURE_2D, tex);
+    return unidade;
+  }
+
+  // -------------------------------------------------------------------------
+  // Um passo de simulação
+  // -------------------------------------------------------------------------
+
+  /**
+   * Avança a física dt segundos (ver o roteiro de passos no topo).
+   *
+   * @param {number} t  - tempo absoluto (s), para as fases da ondulação
+   * @param {number} dt - passo (s), já limitado por quem chama
+   * @param {boolean} ondular - injeta a respiração ambiente? (desligada
+   *                            sob prefers-reduced-motion)
+   */
+  function passo(t, dt, ondular) {
+    gl.bindVertexArray(vao);
+
+    // 1. A correnteza carrega a si mesma.
+    gl.useProgram(progAdveccao.p);
+    gl.uniform1i(progAdveccao.u.uVelocidade, ligarTextura(0, velocidade.lê.tex));
+    gl.uniform1i(progAdveccao.u.uFonte, 0); // a própria velocidade
+    gl.uniform2f(progAdveccao.u.uTexel, texelVel[0], texelVel[1]);
+    gl.uniform1f(progAdveccao.u.uDt, dt);
+    gl.uniform1f(progAdveccao.u.uDissipacao, DISSIPACAO_VELOCIDADE);
+    passada(progAdveccao, velocidade.escreve);
+    velocidade.trocar();
+
+    // 2. Reaviva os redemoinhos que a advecção borrou.
+    gl.useProgram(progRotacional.p);
+    gl.uniform1i(progRotacional.u.uVelocidade, ligarTextura(0, velocidade.lê.tex));
+    gl.uniform2f(progRotacional.u.uTexel, texelVel[0], texelVel[1]);
+    passada(progRotacional, rotacional);
+
+    gl.useProgram(progVorticidade.p);
+    gl.uniform1i(progVorticidade.u.uVelocidade, ligarTextura(0, velocidade.lê.tex));
+    gl.uniform1i(progVorticidade.u.uRotacional, ligarTextura(1, rotacional.tex));
+    gl.uniform2f(progVorticidade.u.uTexel, texelVel[0], texelVel[1]);
+    gl.uniform1f(progVorticidade.u.uForca, VORTICIDADE);
+    gl.uniform1f(progVorticidade.u.uDt, dt);
+    passada(progVorticidade, velocidade.escreve);
+    velocidade.trocar();
+
+    // 3. A água respira.
+    if (ondular) {
+      gl.useProgram(progOndulacao.p);
+      gl.uniform1i(progOndulacao.u.uVelocidade, ligarTextura(0, velocidade.lê.tex));
+      gl.uniform2f(progOndulacao.u.uDimensao, canvas.clientWidth, canvas.clientHeight);
+      gl.uniform1f(progOndulacao.u.uTempo, t);
+      gl.uniform1f(progOndulacao.u.uDt, dt);
+      const k = (l) => (2 * Math.PI) / l;
+      // As amplitudes viram unidades da simulação: a velocidade vive em
+      // células/s, então aceleração em px/s² é dividida pelo tamanho da
+      // célula em px (≈ clientHeight·texel).
+      const escala = 1 / (canvas.clientHeight * texelVel[1] || 1);
+      gl.uniform4f(progOndulacao.u.uOnda1, ONDAS[0].amp * escala, k(ONDAS[0].lx), k(ONDAS[0].ly), 0);
+      gl.uniform4f(progOndulacao.u.uOnda2, ONDAS[1].amp * escala, k(ONDAS[1].lx), k(ONDAS[1].ly), 0);
+      gl.uniform4f(progOndulacao.u.uFases, ONDAS[0].w1, ONDAS[0].w2, ONDAS[1].w1, ONDAS[1].w2);
+      passada(progOndulacao, velocidade.escreve);
+      velocidade.trocar();
+    }
+
+    // 4. Incompressibilidade: divergência → pressão (Jacobi) → projeção.
+    gl.useProgram(progDivergencia.p);
+    gl.uniform1i(progDivergencia.u.uVelocidade, ligarTextura(0, velocidade.lê.tex));
+    gl.uniform2f(progDivergencia.u.uTexel, texelVel[0], texelVel[1]);
+    passada(progDivergencia, divergencia);
+
+    // Amortece a pressão do quadro anterior (bom chute inicial do Jacobi).
+    gl.useProgram(progDesbotar.p);
+    gl.uniform1i(progDesbotar.u.uAlvo, ligarTextura(0, pressao.lê.tex));
+    gl.uniform3f(progDesbotar.u.uCor, 0, 0, 0);
+    gl.uniform1f(progDesbotar.u.uFator, 1 - RETENCAO_PRESSAO);
+    passada(progDesbotar, pressao.escreve);
+    pressao.trocar();
+
+    gl.useProgram(progPressao.p);
+    gl.uniform1i(progPressao.u.uDivergencia, ligarTextura(1, divergencia.tex));
+    gl.uniform2f(progPressao.u.uTexel, texelVel[0], texelVel[1]);
+    for (let i = 0; i < ITERACOES_PRESSAO; i++) {
+      gl.uniform1i(progPressao.u.uPressao, ligarTextura(0, pressao.lê.tex));
+      passada(progPressao, pressao.escreve);
+      pressao.trocar();
+    }
+
+    gl.useProgram(progProjecao.p);
+    gl.uniform1i(progProjecao.u.uPressao, ligarTextura(0, pressao.lê.tex));
+    gl.uniform1i(progProjecao.u.uVelocidade, ligarTextura(1, velocidade.lê.tex));
+    gl.uniform2f(progProjecao.u.uTexel, texelVel[0], texelVel[1]);
+    passada(progProjecao, velocidade.escreve);
+    velocidade.trocar();
+
+    // 5. A correnteza carrega a tinta.
+    gl.useProgram(progAdveccao.p);
+    gl.uniform1i(progAdveccao.u.uVelocidade, ligarTextura(0, velocidade.lê.tex));
+    gl.uniform1i(progAdveccao.u.uFonte, ligarTextura(1, tinta.lê.tex));
+    gl.uniform2f(progAdveccao.u.uTexel, texelVel[0], texelVel[1]);
+    gl.uniform1f(progAdveccao.u.uDt, dt);
+    gl.uniform1f(progAdveccao.u.uDissipacao, DISSIPACAO_TINTA);
+    passada(progAdveccao, tinta.escreve);
+    tinta.trocar();
+  }
+
+  // -------------------------------------------------------------------------
+  // Comandos (coordenadas em px CSS, origem no canto superior esquerdo)
+  // -------------------------------------------------------------------------
+
+  function uv(x, y) {
+    // WebGL tem o eixo y para cima; a página, para baixo.
+    return [x / canvas.clientWidth, 1 - y / canvas.clientHeight];
+  }
+
+  /** Raio gaussiano (uniform uRaio = r²) a partir de um raio em px. */
+  function raio2(px) {
+    const r = px / canvas.clientHeight; // fração da altura (eixo de uProporcao)
+    return r * r;
+  }
+
+  function splat(alvoDuplo, x, y, valor, raioPx, modo) {
+    gl.bindVertexArray(vao);
+    gl.useProgram(progSplat.p);
+    gl.uniform1i(progSplat.u.uAlvo, ligarTextura(0, alvoDuplo.lê.tex));
+    const [u, v] = uv(x, y);
+    gl.uniform2f(progSplat.u.uPonto, u, v);
+    gl.uniform3f(progSplat.u.uValor, valor[0], valor[1], valor[2]);
+    gl.uniform1f(progSplat.u.uRaio, raio2(raioPx));
+    gl.uniform1f(progSplat.u.uProporcao, proporcao);
+    gl.uniform1i(progSplat.u.uModo, modo);
+    passada(progSplat, alvoDuplo.escreve);
+    alvoDuplo.trocar();
+  }
+
+  /**
+   * Pinga uma gota: pinta o corante e empurra a água em anel para fora —
+   * é o empurrão que abre espaço e desloca a tinta vizinha, como a tensão
+   * superficial faz com uma gota de sumi de verdade. Pingar "água" (cor do
+   * papel) só empurra visivelmente: os anéis clássicos do suminagashi.
+   *
+   * @param {[number,number,number]} cor - RGB em [0,1]
+   */
+  function pingar(x, y, raioPx, cor) {
+    splat(tinta, x, y, cor, raioPx, 1);
+    // O empurrão radial alcança além da mancha de cor (a água ao redor
+    // também se move) — daí o raio maior.
+    splat(velocidade, x, y, [FORCA_GOTA, 0, 0], raioPx * 1.6, 2);
+  }
+
+  /**
+   * Estilete: a água sob o dedo ADOTA a velocidade do gesto (modo 3 do
+   * splat). A física faz o resto: a correnteza se propaga, ganha momentum,
+   * dobra a tinta em espirais — e decai sozinha quando o dedo sai.
+   *
+   * @param {number} mx,my  - direção unitária do gesto
+   * @param {number} velPx  - rapidez do gesto em px/s (do input, suavizada)
+   */
+  function mexer(x, y, mx, my, velPx, raioPx) {
+    // Converte px/s para células/s (a unidade interna da velocidade):
+    // tamanho da célula em px = clientHeight / linhas da grade.
+    const celulaPx = canvas.clientHeight * texelVel[1] || 1;
+    const v = velPx / celulaPx;
+    // my invertido: eixo y da página aponta para baixo, o da simulação
+    // para cima.
+    splat(velocidade, x, y, [mx * v, -my * v, 0], raioPx, 3);
+  }
+
+  /** Desbota toda a tinta em direção ao papel (0 = nada, 1 = limpa tudo). */
+  function desbotar(fator) {
+    gl.bindVertexArray(vao);
+    gl.useProgram(progDesbotar.p);
+    gl.uniform1i(progDesbotar.u.uAlvo, ligarTextura(0, tinta.lê.tex));
+    gl.uniform3f(progDesbotar.u.uCor, corPapel[0], corPapel[1], corPapel[2]);
+    gl.uniform1f(progDesbotar.u.uFator, fator);
+    passada(progDesbotar, tinta.escreve);
+    tinta.trocar();
+  }
+
+  /** Desenha a tinta na tela. */
+  function exibir() {
+    gl.bindVertexArray(vao);
+    gl.useProgram(progExibir.p);
+    gl.uniform1i(progExibir.u.uTinta, ligarTextura(0, tinta.lê.tex));
+    passada(progExibir, null);
+  }
+
+  redimensionar();
+  return { redimensionar, passo, pingar, mexer, desbotar, exibir };
+}
