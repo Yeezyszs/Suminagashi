@@ -20,8 +20,9 @@
 //   1. ADVECÇÃO da velocidade — a correnteza carrega a si mesma
 //   2. VORTICIDADE — devolve os redemoinhos que a grade borra
 //   3. ONDULAÇÃO — a "respiração" da água (correnteza ambiente sutil)
-//   4. DIVERGÊNCIA + PRESSÃO + PROJEÇÃO — impõe incompressibilidade
-//   5. ADVECÇÃO da tinta — a correnteza carrega o corante
+//   4. CONTORNO — as paredes da bacia refletem a tinta de volta
+//   5. DIVERGÊNCIA + PRESSÃO + PROJEÇÃO — impõe incompressibilidade
+//   6. ADVECÇÃO da tinta — a correnteza carrega o corante
 //
 // Este módulo conhece WebGL mas não conhece a página: recebe o canvas e
 // comandos (pingar, mexer, lavar) e cuida só da física e da imagem.
@@ -175,6 +176,30 @@ void main() {
   float S = texture(uPressao, vUv - vec2(0.0, uTexel.y)).x;
   vec2 vel = texture(uVelocidade, vUv).xy;
   saida = vec4(vel - 0.5 * vec2(E - O, N - S), 0.0, 1.0);
+}`;
+
+// CONTORNO: as paredes da bacia. Em cada célula da borda, a componente
+// NORMAL da velocidade recebe o NEGATIVO da célula interior vizinha. Com
+// isso a velocidade na interface com a parede tem média zero — condição de
+// NÃO-PENETRAÇÃO: a correnteza não atravessa a borda. Quando a tinta se
+// aproxima, ela é barrada, a pressão se acumula contra a parede e empurra
+// tudo de volta para dentro — é assim que a tinta "bate na borda e volta",
+// sem nenhum caso especial: só física. A componente tangencial passa
+// intacta (parede escorregadia, free-slip), então a tinta desliza ao longo
+// da margem em vez de grudar — o que parece mais água do que cola.
+const FS_CONTORNO = `#version 300 es
+precision highp float;
+in vec2 vUv;
+out vec4 saida;
+uniform sampler2D uVelocidade;
+uniform vec2 uTexel;
+void main() {
+  vec2 v = texture(uVelocidade, vUv).xy;
+  if (vUv.x < uTexel.x)            v.x = -texture(uVelocidade, vUv + vec2(uTexel.x, 0.0)).x;
+  else if (vUv.x > 1.0 - uTexel.x) v.x = -texture(uVelocidade, vUv - vec2(uTexel.x, 0.0)).x;
+  if (vUv.y < uTexel.y)            v.y = -texture(uVelocidade, vUv + vec2(0.0, uTexel.y)).y;
+  else if (vUv.y > 1.0 - uTexel.y) v.y = -texture(uVelocidade, vUv - vec2(0.0, uTexel.y)).y;
+  saida = vec4(v, 0.0, 1.0);
 }`;
 
 // ROTACIONAL (curl): intensidade de rotação local da correnteza.
@@ -389,6 +414,7 @@ export function criarFluido(canvas, corPapel) {
   const progDivergencia = programa(FS_DIVERGENCIA);
   const progPressao = programa(FS_PRESSAO);
   const progProjecao = programa(FS_PROJECAO);
+  const progContorno = programa(FS_CONTORNO);
   const progRotacional = programa(FS_ROTACIONAL);
   const progVorticidade = programa(FS_VORTICIDADE);
   const progOndulacao = programa(FS_ONDULACAO);
@@ -536,7 +562,16 @@ export function criarFluido(canvas, corPapel) {
       velocidade.trocar();
     }
 
-    // 4. Incompressibilidade: divergência → pressão (Jacobi) → projeção.
+    // 4. Paredes: reflete a velocidade normal nas bordas (não-penetração).
+    // Feito ANTES da projeção para que o solver de pressão já enxergue a
+    // parede e empurre a tinta de volta no mesmo quadro.
+    gl.useProgram(progContorno.p);
+    gl.uniform1i(progContorno.u.uVelocidade, ligarTextura(0, velocidade.lê.tex));
+    gl.uniform2f(progContorno.u.uTexel, texelVel[0], texelVel[1]);
+    passada(progContorno, velocidade.escreve);
+    velocidade.trocar();
+
+    // 5. Incompressibilidade: divergência → pressão (Jacobi) → projeção.
     gl.useProgram(progDivergencia.p);
     gl.uniform1i(progDivergencia.u.uVelocidade, ligarTextura(0, velocidade.lê.tex));
     gl.uniform2f(progDivergencia.u.uTexel, texelVel[0], texelVel[1]);
@@ -566,7 +601,17 @@ export function criarFluido(canvas, corPapel) {
     passada(progProjecao, velocidade.escreve);
     velocidade.trocar();
 
-    // 5. A correnteza carrega a tinta.
+    // Reaplica o contorno à velocidade já projetada: a projeção pode
+    // reintroduzir um respingo normal na parede, então selamos de novo
+    // antes de advectar a tinta — assim o corante nunca é carregado para
+    // fora da bacia.
+    gl.useProgram(progContorno.p);
+    gl.uniform1i(progContorno.u.uVelocidade, ligarTextura(0, velocidade.lê.tex));
+    gl.uniform2f(progContorno.u.uTexel, texelVel[0], texelVel[1]);
+    passada(progContorno, velocidade.escreve);
+    velocidade.trocar();
+
+    // 6. A correnteza carrega a tinta.
     gl.useProgram(progAdveccao.p);
     gl.uniform1i(progAdveccao.u.uVelocidade, ligarTextura(0, velocidade.lê.tex));
     gl.uniform1i(progAdveccao.u.uFonte, ligarTextura(1, tinta.lê.tex));
