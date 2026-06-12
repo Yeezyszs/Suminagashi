@@ -33,6 +33,23 @@ const RAIO_MAXIMO = 48;
 /** Duração do fade do botão lavar (ms). */
 const DURACAO_LAVAR = 600;
 
+/** Duração do crescimento de uma gota recém-pingada (ms). Uma gota real
+ *  não aparece pronta: ela se espalha pela superfície. A fórmula de Jaffer
+ *  compõe (ver deslocar() no engine), então crescer em passos é
+ *  matematicamente idêntico a pingar de uma vez — só que fluido. */
+const DURACAO_CRESCIMENTO = 350;
+
+/** Raio inicial da "semente" da gota (px), antes do crescimento animado. */
+const RAIO_SEMENTE = 3;
+
+/** Inércia do estilete: ao soltar o dedo, a tinta continua deslizando com
+ *  a intensidade decaindo por este fator a cada quadro — como água que não
+ *  para no instante em que a mão sai. */
+const INERCIA_DECAIMENTO = 0.9;
+
+/** Intensidade abaixo da qual a inércia é considerada extinta. */
+const INERCIA_MINIMA = 0.15;
+
 // ---------------------------------------------------------------------------
 // Montagem
 // ---------------------------------------------------------------------------
@@ -55,6 +72,20 @@ let sujo = true;
 // Estado do fade do "lavar": null quando inativo, senão o timestamp inicial.
 let inicioLavagem = null;
 
+// Gotas em crescimento: a cada quadro injetamos uma fatia de área até a
+// gota atingir o raio alvo. Guardamos os raios AO QUADRADO porque é em r²
+// (área) que a fórmula compõe linearmente.
+/** @type {{ cx: number, cy: number, r2Semente: number, r2Atual: number, r2Alvo: number, inicio: number }[]} */
+const crescimentos = [];
+
+// Corrente residual do estilete: depois que o dedo solta, ela continua
+// empurrando a tinta com força decrescente até se extinguir.
+/** @type {{ x: number, y: number, mx: number, my: number, z: number } | null} */
+let inercia = null;
+
+// Último movimento de arraste — vira a inércia quando o dedo solta.
+let ultimoMovimento = null;
+
 const reduzMovimento = window.matchMedia('(prefers-reduced-motion: reduce)');
 
 // ---------------------------------------------------------------------------
@@ -64,13 +95,34 @@ const reduzMovimento = window.matchMedia('(prefers-reduced-motion: reduce)');
 const input = instalarInput(canvas, {
   aoPingar(x, y) {
     const raio = entre(rng, RAIO_MINIMO, RAIO_MAXIMO);
-    motor.pingar(x, y, raio, corSelecionada);
+    if (reduzMovimento.matches) {
+      // Sem animações: a gota aparece pronta.
+      motor.pingar(x, y, raio, corSelecionada);
+    } else {
+      // Pinga só a semente; o loop de quadros cresce o resto.
+      motor.pingar(x, y, RAIO_SEMENTE, corSelecionada);
+      crescimentos.push({
+        cx: x,
+        cy: y,
+        r2Semente: RAIO_SEMENTE * RAIO_SEMENTE,
+        r2Atual: RAIO_SEMENTE * RAIO_SEMENTE,
+        r2Alvo: raio * raio,
+        inicio: performance.now(),
+      });
+    }
     sujo = true;
     esconderDica();
   },
   aoArrastar(x, y, mx, my, z) {
     motor.estilete(x, y, mx, my, z);
+    ultimoMovimento = { x, y, mx, my, z };
+    inercia = null; // um gesto novo engole qualquer corrente residual
     // A dirty flag é marcada por processarPendentes() no loop.
+  },
+  aoSoltar() {
+    if (!reduzMovimento.matches && ultimoMovimento) {
+      inercia = { ...ultimoMovimento };
+    }
   },
 });
 
@@ -78,12 +130,43 @@ const input = instalarInput(canvas, {
 // Loop de animação
 // ---------------------------------------------------------------------------
 
+// Easing cúbico de saída: rápido no começo, assentando devagar — o ritmo
+// natural de uma gota se espalhando (a tensão superficial freia no fim).
+function easeOutCubic(t) {
+  return 1 - Math.pow(1 - t, 3);
+}
+
 function quadro(agora) {
   // Aplica os movimentos de estilete acumulados desde o último quadro
   // (uma vez por frame, não por evento — ver comentário no input.js).
   if (input.processarPendentes()) {
     sujo = true;
     esconderDica();
+  }
+
+  // Avança as gotas em crescimento. Cada quadro injeta a fatia de área
+  // que falta entre o r² atual e o r² desejado pela curva de easing —
+  // o deslocamento incremental compõe exatamente (ver engine.deslocar).
+  for (let i = crescimentos.length - 1; i >= 0; i--) {
+    const c = crescimentos[i];
+    const progresso = Math.min((agora - c.inicio) / DURACAO_CRESCIMENTO, 1);
+    const r2Desejado = c.r2Semente + (c.r2Alvo - c.r2Semente) * easeOutCubic(progresso);
+    const r2Fatia = r2Desejado - c.r2Atual;
+    if (r2Fatia > 0) {
+      motor.deslocar(c.cx, c.cy, Math.sqrt(r2Fatia));
+      c.r2Atual = r2Desejado;
+      sujo = true;
+    }
+    if (progresso >= 1) crescimentos.splice(i, 1);
+  }
+
+  // Inércia: a corrente residual continua puxando a tinta, cada vez mais
+  // fraca, até se extinguir.
+  if (inercia !== null) {
+    motor.estilete(inercia.x, inercia.y, inercia.mx, inercia.my, inercia.z);
+    inercia.z *= INERCIA_DECAIMENTO;
+    sujo = true;
+    if (inercia.z < INERCIA_MINIMA) inercia = null;
   }
 
   // Animação de lavagem em andamento?
@@ -106,6 +189,10 @@ function quadro(agora) {
 
 function lavar() {
   if (motor.gotas.length === 0 || inicioLavagem !== null) return;
+  // Interrompe animações pendentes: não faz sentido crescer ou arrastar
+  // tinta que está indo embora.
+  crescimentos.length = 0;
+  inercia = null;
   if (reduzMovimento.matches) {
     // Com prefers-reduced-motion ativo, nada de fade: limpeza imediata.
     motor.limpar();

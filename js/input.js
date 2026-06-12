@@ -28,6 +28,14 @@ export const GANHO_VELOCIDADE = 0.45;
  *  mais suave (e mais "atrasado"). */
 export const SUAVIZACAO = 0.3;
 
+/** Comprimento máximo (px) de cada sub-passo do estilete. Um gesto rápido
+ *  pode percorrer 40px entre dois pointer events; aplicar a deformação de
+ *  uma vez nesse salto faria a tinta "teleportar" em degraus visíveis.
+ *  Dividindo o segmento em sub-passos curtos, o estilete passa por TODOS
+ *  os pontos do caminho e a tinta flui contínua, sem importar a
+ *  velocidade do dedo. */
+export const SUBPASSO = 8;
+
 /**
  * Instala os handlers de gesto num elemento (o canvas).
  *
@@ -35,9 +43,11 @@ export const SUAVIZACAO = 0.3;
  * @param {{
  *   aoPingar: (x: number, y: number) => void,
  *   aoArrastar: (x: number, y: number, mx: number, my: number, z: number) => void,
- * }} callbacks
+ *   aoSoltar: () => void,
+ * }} callbacks - aoSoltar dispara ao fim de um ARRASTE (não de um tap);
+ *   é o gancho da inércia: a tinta continua deslizando depois do gesto.
  */
-export function instalarInput(alvo, { aoPingar, aoArrastar }) {
+export function instalarInput(alvo, { aoPingar, aoArrastar, aoSoltar }) {
   // Estado do gesto em andamento (um ponteiro por vez — multitoque fica
   // para depois; o segundo dedo é simplesmente ignorado).
   let ponteiroAtivo = null;
@@ -86,18 +96,29 @@ export function instalarInput(alvo, { aoPingar, aoArrastar }) {
       arrastando = true;
     }
 
-    // Intensidade ∝ tamanho do passo (proxy da velocidade do gesto),
-    // suavizada por média móvel exponencial e limitada por Z_MAXIMO.
-    const zBruto = Math.min(passo * GANHO_VELOCIDADE, Z_MAXIMO);
+    // Divide o segmento em sub-passos curtos (ver SUBPASSO). A intensidade
+    // de cada sub-passo é proporcional ao SEU comprimento — assim o quanto
+    // a tinta é puxada depende da distância percorrida pelo dedo, não de
+    // quantos eventos o navegador disparou no caminho.
+    const mx = dx / passo;
+    const my = dy / passo;
+    const numSubpassos = Math.max(1, Math.ceil(passo / SUBPASSO));
+    const comprimentoSub = passo / numSubpassos;
+
+    // Suavização exponencial da intensidade: o estilete "pega embalo" e
+    // desacelera gradualmente em vez de responder em trancos.
+    const zBruto = Math.min(comprimentoSub * GANHO_VELOCIDADE, Z_MAXIMO);
     zSuavizado += (zBruto - zSuavizado) * SUAVIZACAO;
 
-    movimentosPendentes.push({
-      x: e.clientX,
-      y: e.clientY,
-      mx: dx / passo, // direção unitária do movimento
-      my: dy / passo,
-      z: zSuavizado,
-    });
+    for (let s = 1; s <= numSubpassos; s++) {
+      movimentosPendentes.push({
+        x: ultimoX + mx * comprimentoSub * s,
+        y: ultimoY + my * comprimentoSub * s,
+        mx,
+        my,
+        z: zSuavizado,
+      });
+    }
 
     ultimoX = e.clientX;
     ultimoY = e.clientY;
@@ -105,12 +126,15 @@ export function instalarInput(alvo, { aoPingar, aoArrastar }) {
 
   function terminarGesto(e) {
     if (e.pointerId !== ponteiroAtivo) return;
-    // Soltou sem ter virado drag → era um tap: pinga gota.
     if (!arrastando && e.type === 'pointerup') {
+      // Soltou sem ter virado drag → era um tap: pinga gota.
       aoPingar(e.clientX, e.clientY);
+    } else if (arrastando) {
+      // Fim de um arraste: avisa para a inércia assumir.
+      aoSoltar();
     }
     ponteiroAtivo = null;
-    movimentosPendentes.length = arrastando ? movimentosPendentes.length : 0;
+    if (!arrastando) movimentosPendentes.length = 0;
   }
 
   alvo.addEventListener('pointerup', terminarGesto);

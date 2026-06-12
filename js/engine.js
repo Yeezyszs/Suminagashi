@@ -98,9 +98,37 @@ export function criarMotor() {
    * papel) cria os anéis do suminagashi clássico: ela empurra sem cobrir.
    */
   function pingar(cx, cy, r, cor) {
+    deslocar(cx, cy, r);
+
+    // Insere a gota nova como um círculo discretizado.
+    const pontos = new Float32Array(MAX_VERTICES * 2);
+    for (let v = 0; v < VERTICES_INICIAIS; v++) {
+      const ang = (v / VERTICES_INICIAIS) * Math.PI * 2;
+      pontos[v * 2] = cx + Math.cos(ang) * r;
+      pontos[v * 2 + 1] = cy + Math.sin(ang) * r;
+    }
+    gotas.push({ pontos, n: VERTICES_INICIAIS, cor });
+
+    // Excedeu o teto? Remove a mais antiga (índice 0 — a primeira pintada).
+    if (gotas.length > MAX_GOTAS) gotas.shift();
+  }
+
+  /**
+   * Aplica só o DESLOCAMENTO de inserção (sem criar gota) a todas as gotas.
+   *
+   * Existe separado do pingar() por causa da animação de crescimento: a
+   * fórmula de Jaffer COMPÕE — deslocar com r₁ e depois com r₂ leva um
+   * ponto de d para sqrt(d² + r₁² + r₂²), exatamente o mesmo que deslocar
+   * uma única vez com r = sqrt(r₁² + r₂²). Então uma gota pode "crescer"
+   * em vários quadros (cada um injetando uma fatia de área π·rᵢ²) e o
+   * resultado final é idêntico ao de pingar tudo de uma vez — a animação
+   * é pura apresentação, a matemática não muda. E como a própria gota em
+   * crescimento também é empurrada pela fórmula (seus vértices a distância
+   * ~r vão para sqrt(r² + rᵢ²)), ela cresce sozinha, sem caso especial.
+   */
+  function deslocar(cx, cy, r) {
     const r2 = r * r;
 
-    // Empurra todos os vértices de todas as gotas existentes.
     for (const gota of gotas) {
       const p = gota.pontos;
       const fim = gota.n * 2;
@@ -115,18 +143,6 @@ export function criarMotor() {
         p[i + 1] = cy + dy * fator;
       }
     }
-
-    // Insere a gota nova como um círculo discretizado.
-    const pontos = new Float32Array(MAX_VERTICES * 2);
-    for (let v = 0; v < VERTICES_INICIAIS; v++) {
-      const ang = (v / VERTICES_INICIAIS) * Math.PI * 2;
-      pontos[v * 2] = cx + Math.cos(ang) * r;
-      pontos[v * 2 + 1] = cy + Math.sin(ang) * r;
-    }
-    gotas.push({ pontos, n: VERTICES_INICIAIS, cor });
-
-    // Excedeu o teto? Remove a mais antiga (índice 0 — a primeira pintada).
-    if (gotas.length > MAX_GOTAS) gotas.shift();
 
     // O deslocamento estica as arestas das gotas vizinhas.
     reamostrarTudo();
@@ -240,5 +256,5 @@ export function criarMotor() {
     gotas.length = 0;
   }
 
-  return { gotas, pingar, estilete, limpar };
+  return { gotas, pingar, deslocar, estilete, limpar };
 }

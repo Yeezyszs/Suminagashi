@@ -70,6 +70,31 @@ console.log('2. Pingar: fórmula de deslocamento com valores conhecidos');
 }
 
 // ---------------------------------------------------------------------------
+console.log('2b. Composição: crescer em passos ≡ pingar de uma vez');
+{
+  // Base da animação de crescimento: deslocar com r₁ e depois r₂ deve ser
+  // idêntico a deslocar uma vez com sqrt(r₁² + r₂²).
+  const motorA = criarMotor();
+  motorA.pingar(50, 0, 10, '#000');
+  motorA.deslocar(0, 0, 6);
+  motorA.deslocar(0, 0, 8);
+
+  const motorB = criarMotor();
+  motorB.pingar(50, 0, 10, '#000');
+  motorB.deslocar(0, 0, 10); // sqrt(36 + 64) = 10
+
+  const pa = motorA.gotas[0];
+  const pb = motorB.gotas[0];
+  let identicos = pa.n === pb.n;
+  if (identicos) {
+    for (let i = 0; i < pa.n * 2; i++) {
+      if (!aproxIgual(pa.pontos[i], pb.pontos[i], 1e-3)) { identicos = false; break; }
+    }
+  }
+  verifica('dois passos (6,8) ≡ um passo (10)', identicos);
+}
+
+// ---------------------------------------------------------------------------
 console.log('3. Pingar no mesmo ponto não explode (proteção epsilon)');
 {
   const motor = criarMotor();

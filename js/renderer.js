@@ -46,14 +46,27 @@ export function criarRenderer(canvas, corPapel) {
     ctx.fillStyle = corPapel;
     ctx.fillRect(0, 0, canvas.clientWidth, canvas.clientHeight);
 
+    // Cada gota é desenhada com curvas quadráticas em vez de segmentos
+    // retos: o caminho passa pelos PONTOS MÉDIOS das arestas, usando cada
+    // vértice como ponto de controle. É o truque clássico de suavização —
+    // a curva resultante é contínua e sem quinas mesmo onde a reamostragem
+    // ainda não refinou a borda, o que dá às gotas o aspecto líquido de
+    // tinta sobre água em vez de polígono facetado. Custo: praticamente o
+    // mesmo do lineTo.
     for (const gota of gotas) {
       const p = gota.pontos;
       const n = gota.n;
       ctx.fillStyle = gota.cor;
       ctx.beginPath();
-      ctx.moveTo(p[0], p[1]);
-      for (let v = 1; v < n; v++) {
-        ctx.lineTo(p[v * 2], p[v * 2 + 1]);
+      // Começa no ponto médio entre o último e o primeiro vértice.
+      let px = (p[(n - 1) * 2] + p[0]) / 2;
+      let py = (p[(n - 1) * 2 + 1] + p[1]) / 2;
+      ctx.moveTo(px, py);
+      for (let v = 0; v < n; v++) {
+        const w = (v + 1) % n;
+        const meioX = (p[v * 2] + p[w * 2]) / 2;
+        const meioY = (p[v * 2 + 1] + p[w * 2 + 1]) / 2;
+        ctx.quadraticCurveTo(p[v * 2], p[v * 2 + 1], meioX, meioY);
       }
       ctx.closePath();
       ctx.fill();
