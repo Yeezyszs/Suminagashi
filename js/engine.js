@@ -45,6 +45,22 @@ export const LIMIAR_SUBDIVISAO = 5;
  *  dedo a tinta acompanha o gesto, longe quase não se move. */
 export const LAMBDA_ESTILETE = 60;
 
+/** Tamanho da célula (px) da grade onde o campo de ondulação é avaliado.
+ *  Menor = correnteza mais detalhada, porém mais senos por quadro. 24px é
+ *  invisível a olho nu para um campo com ondas de 150px ou mais. */
+export const CELULA_ONDULACAO = 24;
+
+/** As ondas da função de corrente ψ (ver ondular()). Cada uma contribui
+ *  ψ = amp·sin(x·kx + ω₁t)·sin(y·ky + ω₂t). A velocidade máxima de cada
+ *  onda é ~amp·k: a primeira (larga, ~3.5 px/s) dá a deriva preguiçosa do
+ *  conjunto; a segunda (curta, ~2.9 px/s) dá o tremular fino das bordas.
+ *  Os ω (rad/s) fazem o padrão de correntes se transformar ao longo de
+ *  ~20–30s — devagar o suficiente para ser contemplativo, não hipnótico. */
+export const ONDAS = [
+  { amp: 200, kx: (2 * Math.PI) / 420, ky: (2 * Math.PI) / 360, w1: 0.23, w2: -0.19 },
+  { amp: 70, kx: (2 * Math.PI) / 170, ky: (2 * Math.PI) / 150, w1: -0.31, w2: 0.26 },
+];
+
 /** Proteção numérica: distância mínima considerada nos deslocamentos.
  *  Sem isso, um vértice exatamente no centro de uma gota nova (caso real:
  *  pingar duas vezes no mesmo ponto, como no teste dos anéis concêntricos)
@@ -248,6 +264,125 @@ export function criarMotor() {
   }
 
   // -------------------------------------------------------------------------
+  // 4. Ondulação — a água nunca está parada
+  // -------------------------------------------------------------------------
+
+  // Buffers do campo de ondulação, reutilizados entre quadros (crescem sob
+  // demanda; nunca encolhem). Alocar a cada quadro acionaria o GC no meio
+  // da animação contínua.
+  let campoVx = new Float32Array(0);
+  let campoVy = new Float32Array(0);
+
+  /**
+   * Deriva suavemente toda a tinta, como se a superfície da água respirasse.
+   *
+   * No suminagashi real a água de uma bacia nunca está perfeitamente
+   * imóvel: correntes mínimas (respiração do artista, vibração da mesa)
+   * fazem os anéis ondular e vaguear o tempo todo. É essa vida contínua —
+   * não os gestos — que separa "tinta sobre água" de "desenho estático".
+   *
+   * Modelamos a correnteza com uma FUNÇÃO DE CORRENTE ψ(x, y, t): a
+   * velocidade é o rotacional do campo escalar, v = (∂ψ/∂y, −∂ψ/∂x).
+   * Qualquer campo construído assim tem divergência zero — é
+   * INCOMPRESSÍVEL, sem "fontes" nem "ralos": a tinta circula e ondula mas
+   * não se acumula nem se rarefaz, exatamente como um líquido real. Usamos
+   * duas ondas senoidais de escalas diferentes (uma larga e lenta, uma
+   * curta e rápida) com fases que avançam no tempo, então o padrão de
+   * correntes se transforma continuamente e nunca se repete de forma
+   * perceptível.
+   *
+   * Desempenho: avaliar senos para cada um dos até 48 mil vértices custaria
+   * vários ms por quadro no celular. Em vez disso, avaliamos o campo numa
+   * GRADE grossa (células de CELULA_ONDULACAO px) cobrindo só a caixa que
+   * contém tinta, e cada vértice interpola bilinearmente entre os 4 nós
+   * vizinhos — centenas de senos em vez de centenas de milhares.
+   *
+   * Determinismo: o campo só depende de (x, y, t). Para o futuro modo de
+   * replay por seed, basta reproduzir a mesma sequência de chamadas com os
+   * mesmos t e dt (passo de tempo FIXO no replay) e o resultado é idêntico.
+   *
+   * @param {number} t  - tempo absoluto em segundos
+   * @param {number} dt - passo de tempo em segundos (limitar a ~0.05 fora
+   *                      daqui: um dt gigante após a aba ficar suspensa
+   *                      teleportaria a tinta)
+   */
+  function ondular(t, dt) {
+    if (gotas.length === 0) return;
+
+    // Caixa envolvente de toda a tinta (só ondulamos onde há o que ondular).
+    let minX = Infinity;
+    let minY = Infinity;
+    let maxX = -Infinity;
+    let maxY = -Infinity;
+    for (const gota of gotas) {
+      const p = gota.pontos;
+      const fim = gota.n * 2;
+      for (let i = 0; i < fim; i += 2) {
+        if (p[i] < minX) minX = p[i];
+        if (p[i] > maxX) maxX = p[i];
+        if (p[i + 1] < minY) minY = p[i + 1];
+        if (p[i + 1] > maxY) maxY = p[i + 1];
+      }
+    }
+
+    // Grade com 1 célula de folga para a interpolação nas bordas.
+    const nx = Math.ceil((maxX - minX) / CELULA_ONDULACAO) + 2;
+    const ny = Math.ceil((maxY - minY) / CELULA_ONDULACAO) + 2;
+    if (campoVx.length < nx * ny) {
+      campoVx = new Float32Array(nx * ny);
+      campoVy = new Float32Array(nx * ny);
+    }
+
+    // Avalia v = (∂ψ/∂y, −∂ψ/∂x) nos nós da grade. Para cada onda
+    // ψ = A·sin(x·kx + ω₁t)·sin(y·ky + ω₂t), as derivadas analíticas são:
+    //   ∂ψ/∂y =  A·ky·sin(x·kx + ω₁t)·cos(y·ky + ω₂t)
+    //   ∂ψ/∂x =  A·kx·cos(x·kx + ω₁t)·sin(y·ky + ω₂t)
+    for (let j = 0; j < ny; j++) {
+      const y = minY + j * CELULA_ONDULACAO;
+      for (let i = 0; i < nx; i++) {
+        const x = minX + i * CELULA_ONDULACAO;
+        let vx = 0;
+        let vy = 0;
+        for (const o of ONDAS) {
+          const fx = x * o.kx + o.w1 * t;
+          const fy = y * o.ky + o.w2 * t;
+          vx += o.amp * o.ky * Math.sin(fx) * Math.cos(fy);
+          vy -= o.amp * o.kx * Math.cos(fx) * Math.sin(fy);
+        }
+        campoVx[j * nx + i] = vx;
+        campoVy[j * nx + i] = vy;
+      }
+    }
+
+    // Advecção: cada vértice anda dt segundos na velocidade interpolada
+    // bilinearmente entre os 4 nós da célula em que caiu.
+    for (const gota of gotas) {
+      const p = gota.pontos;
+      const fim = gota.n * 2;
+      for (let i = 0; i < fim; i += 2) {
+        const gx = (p[i] - minX) / CELULA_ONDULACAO;
+        const gy = (p[i + 1] - minY) / CELULA_ONDULACAO;
+        const i0 = gx | 0; // truncamento rápido para inteiro
+        const j0 = gy | 0;
+        const fx = gx - i0;
+        const fy = gy - j0;
+        const a = j0 * nx + i0;
+        const b = a + nx;
+        const vx =
+          (campoVx[a] * (1 - fx) + campoVx[a + 1] * fx) * (1 - fy) +
+          (campoVx[b] * (1 - fx) + campoVx[b + 1] * fx) * fy;
+        const vy =
+          (campoVy[a] * (1 - fx) + campoVy[a + 1] * fx) * (1 - fy) +
+          (campoVy[b] * (1 - fx) + campoVy[b + 1] * fx) * fy;
+        p[i] += vx * dt;
+        p[i + 1] += vy * dt;
+      }
+    }
+
+    reamostrarTudo();
+  }
+
+  // -------------------------------------------------------------------------
   // Utilitários
   // -------------------------------------------------------------------------
 
@@ -256,5 +391,5 @@ export function criarMotor() {
     gotas.length = 0;
   }
 
-  return { gotas, pingar, deslocar, estilete, limpar };
+  return { gotas, pingar, deslocar, estilete, ondular, limpar };
 }

@@ -158,6 +158,34 @@ console.log('6. Teto de gotas simultâneas');
 }
 
 // ---------------------------------------------------------------------------
+console.log('6b. Ondulação: deriva sutil, finita e incompressível na prática');
+{
+  const motor = criarMotor();
+  motor.pingar(200, 200, 40, '#000');
+  motor.pingar(400, 300, 40, '#fff');
+
+  // Guarda as posições antes de 1 segundo de ondulação (60 passos de 1/60s).
+  const antes = Float32Array.from(motor.gotas[0].pontos.subarray(0, motor.gotas[0].n * 2));
+  for (let q = 0; q < 60; q++) motor.ondular(q / 60, 1 / 60);
+
+  const g = motor.gotas[0];
+  let finito = true;
+  let maiorDeslocamento = 0;
+  for (let v = 0; v < Math.min(g.n, antes.length / 2); v++) {
+    const dx = g.pontos[v * 2] - antes[v * 2];
+    const dy = g.pontos[v * 2 + 1] - antes[v * 2 + 1];
+    if (!Number.isFinite(dx) || !Number.isFinite(dy)) finito = false;
+    maiorDeslocamento = Math.max(maiorDeslocamento, Math.sqrt(dx * dx + dy * dy));
+  }
+  verifica('coordenadas finitas após 1s de deriva', finito);
+  verifica(
+    'deriva existe mas é sutil (0 < máx < 12px/s)',
+    maiorDeslocamento > 0.5 && maiorDeslocamento < 12,
+    `(máx ${maiorDeslocamento.toFixed(2)}px)`
+  );
+}
+
+// ---------------------------------------------------------------------------
 console.log('7. Desempenho aproximado (cenário do brief: 60 gotas)');
 {
   const motor = criarMotor();
@@ -171,6 +199,13 @@ console.log('7. Desempenho aproximado (cenário do brief: 60 gotas)');
   for (let i = 0; i < PASSOS; i++) motor.estilete(400 + i, 300, 1, 0, 5);
   const mediaMs = (performance.now() - inicio) / PASSOS;
   verifica(`passo de estilete em ${mediaMs.toFixed(2)}ms (< 8ms)`, mediaMs < 8);
+
+  // A ondulação roda TODO quadro enquanto há tinta — é o caso mais quente
+  // do projeto agora; precisa ser quase de graça.
+  const inicioOnda = performance.now();
+  for (let i = 0; i < PASSOS; i++) motor.ondular(i / 60, 1 / 60);
+  const ondaMs = (performance.now() - inicioOnda) / PASSOS;
+  verifica(`passo de ondulação em ${ondaMs.toFixed(2)}ms (< 4ms)`, ondaMs < 4);
 }
 
 // ---------------------------------------------------------------------------

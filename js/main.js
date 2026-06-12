@@ -136,7 +136,21 @@ function easeOutCubic(t) {
   return 1 - Math.pow(1 - t, 3);
 }
 
+// Timestamp do quadro anterior, para calcular o dt da ondulação.
+let quadroAnterior = null;
+
 function quadro(agora) {
+  // A água respira: a ondulação ambiente roda em todo quadro em que há
+  // tinta na bacia (com papel em branco não há o que mover — e o loop
+  // volta a ser barato, poupando bateria). O dt é limitado a 50ms: quando
+  // a aba volta de segundo plano, o rAF entrega um salto de tempo enorme
+  // que teleportaria a tinta em vez de derivá-la.
+  if (quadroAnterior !== null && !reduzMovimento.matches && motor.gotas.length > 0) {
+    const dt = Math.min((agora - quadroAnterior) / 1000, 0.05);
+    motor.ondular(agora / 1000, dt);
+    sujo = true;
+  }
+  quadroAnterior = agora;
   // Aplica os movimentos de estilete acumulados desde o último quadro
   // (uma vez por frame, não por evento — ver comentário no input.js).
   if (input.processarPendentes()) {

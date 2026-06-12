@@ -63,6 +63,19 @@ A tinta sob o dedo acompanha o gesto por inteiro; a influência decai com a
 distância (`λ` ≈ 60px é o raio de influência), o que dá a sensação de um
 estilete fino puxando a superfície.
 
+**3. A água respira.** Num suminagashi real a superfície nunca está
+imóvel; aqui, um campo de correnteza contínuo deriva toda a tinta o tempo
+todo. A velocidade vem de uma *função de corrente* `ψ(x, y, t)` (duas
+ondas senoidais de escalas diferentes, com fases que avançam no tempo):
+
+```
+v = (∂ψ/∂y, −∂ψ/∂x)
+```
+
+Todo campo construído assim é **incompressível** (divergência zero): a
+tinta ondula e vagueia, mas nunca se acumula nem se rarefaz — como um
+líquido de verdade. Com `prefers-reduced-motion` ativo, a água fica parada.
+
 **Reamostragem:** deformações esticam as arestas dos polígonos; arestas
 mais longas que um limiar são subdivididas (ponto médio) para a borda
 continuar lisa, com teto de ~600 vértices por gota para limitar o custo.
