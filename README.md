@@ -18,6 +18,14 @@ npx serve
 > É preciso um servidor (não abrir o arquivo direto) porque o projeto usa
 > ES Modules nativos, e navegadores bloqueiam `import` via `file://`.
 
+### Deploy (GitHub Pages)
+
+O repositório já vem com o workflow `.github/workflows/pages.yml`: todo
+push na `main` publica o site automaticamente. Só é preciso ativar uma vez
+em **Settings → Pages → Source: "GitHub Actions"**. Não há build — a raiz
+do repositório é o site (todos os caminhos são relativos, então funciona
+em `usuario.github.io/repositorio/` sem configuração).
+
 Funciona com mouse e com toque:
 
 - **toque/clique rápido** — pinga uma gota da cor selecionada, que se
