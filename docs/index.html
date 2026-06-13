@@ -12,6 +12,11 @@
   <!-- O canvas é o protagonista: tela cheia, tudo o mais flutua sobre ele. -->
   <canvas id="agua"></canvas>
 
+  <!-- Atmosfera: a luz da sala. Um único overlay por cima de tudo
+       (água, UI, estante), pointer-events:none, compositing normal —
+       barato. O gradiente é definido pelo sistema de luz (js/luz.js). -->
+  <div id="atmosfera" aria-hidden="true"></div>
+
   <h1 id="titulo">墨流し <span>suminagashi</span></h1>
 
   <p id="dica">toque para pingar · arraste para mover a tinta</p>

@@ -27,6 +27,24 @@ body {
   transition: background var(--duracao-tema) ease, color var(--duracao-tema) ease;
 }
 
+/* --------------------------------------------------------------- atmosfera */
+
+/* A luz da sala: um gradiente radial que escurece/tinge a cena conforme a
+   hora (e o tom da fundação). Fica por cima de tudo, sem capturar gestos.
+   A transição longa faz a virada minuto-a-minuto ser imperceptível. */
+#atmosfera {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  pointer-events: none;
+  background: radial-gradient(
+    ellipse at center,
+    var(--atm-centro, transparent) 30%,
+    var(--atm-borda, transparent) 100%
+  );
+  transition: background 2.5s linear;
+}
+
 /* ------------------------------------------------------------------ canvas */
 
 #agua {

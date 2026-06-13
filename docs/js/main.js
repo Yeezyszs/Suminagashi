@@ -8,6 +8,12 @@ import { mulberry32, entre } from './prng.js';
 import { criarFluido } from './fluido.js';
 import { instalarInput } from './input.js';
 import { extrairTema, calcularCalma, mapearCalma } from './ritual.js';
+import {
+  cicloDeLuz,
+  extrairTomFundacao,
+  comporAtmosfera,
+  corDaAtmosfera,
+} from './luz.js';
 
 // ---------------------------------------------------------------------------
 // Paleta (10 tintas + água), em constantes nomeadas e fáceis de trocar.
@@ -57,6 +63,9 @@ const DT_MAXIMO = 1 / 30;
 
 /** Chave única do ritual no localStorage (JSON com tema, calma, miniatura). */
 const CHAVE_RITUAL = 'ritual.v1';
+
+/** Chave do viés de tom da fundação (camada 2 da luz). */
+const CHAVE_FUNDACAO = 'fundacao.v1';
 
 /** Gestos mínimos antes que a obra possa assentar. */
 const GESTOS_MINIMOS = 3;
@@ -162,6 +171,35 @@ let inicioAssentamento = null;
 
 // Multiplicador do ritmo da água vindo do tema salvo (1 = neutro).
 let fatorOndulacaoTema = 1;
+
+// --- atmosfera (sistema de luz) ---------------------------------------------
+
+// Viés de tom da fundação (camada 2): null = sala ainda sem alma.
+let tomFundacao = lerArmazenado(CHAVE_FUNDACAO);
+
+const overlayAtmosfera = document.getElementById('atmosfera');
+
+// Hora forçada por ?hora=HH:MM — só para testar/validar o ciclo de luz
+// (critério de aceite nº 2). Sem o parâmetro, usa o relógio real.
+const horaForcada = new URLSearchParams(location.search).get('hora');
+
+/** O instante usado pelo ciclo de luz (real, ou forçado para teste). */
+function agoraParaLuz() {
+  if (horaForcada === null) return new Date();
+  const [hh, mm] = horaForcada.split(':');
+  const d = new Date();
+  d.setHours(Number(hh) || 0, Number(mm) || 0, 0, 0);
+  return d;
+}
+
+/** Recalcula a luz da sala e a aplica ao overlay. O CSS faz a transição
+ *  suave; por isso basta chamar a cada ~60s (a luz é minuto a minuto). */
+function atualizarAtmosfera() {
+  const atm = comporAtmosfera(cicloDeLuz(agoraParaLuz()), tomFundacao);
+  const { centro, borda } = corDaAtmosfera(atm);
+  overlayAtmosfera.style.setProperty('--atm-centro', centro);
+  overlayAtmosfera.style.setProperty('--atm-borda', borda);
+}
 
 // ---------------------------------------------------------------------------
 // Gestos → fluido
@@ -314,6 +352,12 @@ function concluirRitual() {
 
   aplicarTema(tema, calma, true);
 
+  // A fundação também define o TOM da sala (camada 2 da luz): a primeira
+  // pintura é o ar que a sala respira. Reaproveita a mesma amostra 64px.
+  tomFundacao = extrairTomFundacao(amostra.pixels, amostra.w, amostra.h, hexParaRgb(COR_PAPEL));
+  gravarArmazenado(CHAVE_FUNDACAO, tomFundacao);
+  atualizarAtmosfera();
+
   // A fundação: miniatura da obra que acabou de vestir o site.
   const miniatura = capturaParaDataUrl(fluido.capturar(LARGURA_MINIATURA));
   gravarArmazenado(CHAVE_RITUAL, {
@@ -381,6 +425,9 @@ function mostrarSelo(miniatura) {
 
 function refazerRitual() {
   gravarArmazenado(CHAVE_RITUAL, null);
+  gravarArmazenado(CHAVE_FUNDACAO, null);
+  tomFundacao = null;
+  atualizarAtmosfera(); // a sala volta a ser neutra (sem alma)
   document.getElementById('selo').hidden = true;
   document.getElementById('popover-selo').hidden = true;
 
@@ -553,4 +600,9 @@ document.getElementById('fechar-selo').addEventListener('click', () => {
 montarPaleta();
 document.getElementById('lavar').addEventListener('click', lavar);
 window.addEventListener('resize', () => fluido.redimensionar());
+
+// A luz da sala: aplica agora e segue minuto a minuto.
+atualizarAtmosfera();
+setInterval(atualizarAtmosfera, 60000);
+
 requestAnimationFrame(quadro);
