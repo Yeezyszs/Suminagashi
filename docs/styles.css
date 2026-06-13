@@ -1,9 +1,13 @@
 /* styles.css — UI mínima e quieta: o canvas é o protagonista. */
 
 :root {
-  /* Paleta provisória (espelha as constantes do main.js). */
-  --papel: #EFE9DC;
-  --tinta: #1C1C1C;
+  /* Tokens de tema. Os padrões são o neutro (washi); após o ritual de
+     entrada, o main.js os sobrescreve com as cores extraídas da primeira
+     pintura do usuário — o site se veste da obra. */
+  --papel: #EFE9DC; /* fundo do site (a "--cor-fundo" do tema) */
+  --tinta: #1C1C1C; /* acento/texto da UI (a "--cor-acento" do tema) */
+  /* Duração da troca de tema; o ritual define conforme a calma do gesto. */
+  --duracao-tema: 0ms;
 }
 
 * {
@@ -20,6 +24,7 @@ body {
   /* Serifa de sistema com cara de mincho para o título; nada de webfont. */
   font-family: "Hiragino Mincho ProN", "Yu Mincho", Georgia, serif;
   color: var(--tinta);
+  transition: background var(--duracao-tema) ease, color var(--duracao-tema) ease;
 }
 
 /* ------------------------------------------------------------------ canvas */
@@ -88,11 +93,13 @@ body {
   gap: 0.9rem;
   padding: 0.6rem 1rem;
   border-radius: 999px;
-  /* Translúcida sobre a obra, com leve blur quando o navegador suporta. */
-  background: rgba(239, 233, 220, 0.65);
+  /* Translúcida sobre a obra, seguindo o tema, com leve blur. */
+  background: rgba(239, 233, 220, 0.65); /* reserva p/ navegador antigo */
+  background: color-mix(in srgb, var(--papel) 65%, transparent);
   backdrop-filter: blur(8px);
   -webkit-backdrop-filter: blur(8px);
   box-shadow: 0 2px 14px rgba(28, 28, 28, 0.12);
+  transition: background var(--duracao-tema) ease, opacity 3s ease;
 }
 
 #paleta {
@@ -222,13 +229,119 @@ body {
   opacity: 1;
 }
 
+/* ----------------------------------------------------------------- ritual */
+
+/* Assentamento: a UI esmaece devagar enquanto a água se aquieta — o único
+   sinal de que algo está acontecendo (sem countdown). Cancelado, volta. */
+body.assentando #barra,
+body.assentando #titulo {
+  opacity: 0.25;
+}
+
+#titulo,
+#dica {
+  transition: color var(--duracao-tema) ease, opacity 0.8s ease;
+}
+
+body.assentando #titulo {
+  transition: color var(--duracao-tema) ease, opacity 3s ease;
+}
+
+/* "este é o seu lugar." */
+#aviso {
+  position: fixed;
+  left: 50%;
+  top: 42%;
+  transform: translateX(-50%);
+  font-size: 0.95rem;
+  letter-spacing: 0.18em;
+  opacity: 0;
+  pointer-events: none;
+  user-select: none;
+  transition: opacity 1.4s ease;
+}
+
+#aviso.visivel {
+  opacity: 0.7;
+}
+
+/* Selo da fundação: a miniatura da primeira pintura, discreta no canto. */
+#selo {
+  position: fixed;
+  bottom: 1.25rem;
+  left: 1.25rem;
+  width: 2.6rem;
+  height: 2.6rem;
+  padding: 0;
+  border: 1px solid color-mix(in srgb, var(--tinta) 30%, transparent);
+  border-radius: 50%;
+  overflow: hidden;
+  cursor: pointer;
+  background: var(--papel);
+  opacity: 0.75;
+  transition: opacity 0.2s ease;
+}
+
+#selo:hover {
+  opacity: 1;
+}
+
+#selo img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+#popover-selo {
+  position: fixed;
+  bottom: 4.4rem;
+  left: 1.25rem;
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.45rem;
+  padding: 0.7rem 0.9rem;
+  border-radius: 0.8rem;
+  background: color-mix(in srgb, var(--papel) 92%, transparent);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  box-shadow: 0 4px 18px rgba(28, 28, 28, 0.18);
+}
+
+#popover-selo[hidden] {
+  display: none;
+}
+
+#popover-selo button {
+  border: none;
+  background: none;
+  font-family: inherit;
+  font-size: 0.8rem;
+  letter-spacing: 0.08em;
+  color: var(--tinta);
+  opacity: 0.75;
+  cursor: pointer;
+  padding: 0.1rem 0;
+}
+
+#popover-selo button:hover {
+  opacity: 1;
+}
+
 /* --------------------------------------------------- prefers-reduced-motion */
 
 @media (prefers-reduced-motion: reduce) {
-  /* Sem animações decorativas: a dica some na hora, swatches não escalam.
-     (O fade do "lavar" também é desativado, no main.js.) */
+  /* Sem animações decorativas: a dica some na hora, swatches não escalam,
+     tema e aviso trocam em corte seco. (O fade do "lavar" e o assentamento
+     longo também são desativados, no main.js.) */
   #dica,
-  .cor {
+  .cor,
+  #aviso,
+  body,
+  #barra,
+  #titulo {
     transition: none;
   }
 

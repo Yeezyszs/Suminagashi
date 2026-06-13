@@ -7,6 +7,7 @@
 import { mulberry32, entre } from './prng.js';
 import { criarFluido } from './fluido.js';
 import { instalarInput } from './input.js';
+import { extrairTema, calcularCalma, mapearCalma } from './ritual.js';
 
 // ---------------------------------------------------------------------------
 // Paleta (10 tintas + água), em constantes nomeadas e fáceis de trocar.
@@ -51,6 +52,27 @@ const DURACAO_LAVAR = 600;
  *  requestAnimationFrame entrega um salto de tempo enorme — sem este teto
  *  a advecção atravessaria a bacia inteira num único passo. */
 const DT_MAXIMO = 1 / 30;
+
+// --- ritual de entrada ------------------------------------------------------
+
+/** Chave única do ritual no localStorage (JSON com tema, calma, miniatura). */
+const CHAVE_RITUAL = 'ritual.v1';
+
+/** Gestos mínimos antes que a obra possa assentar. */
+const GESTOS_MINIMOS = 3;
+
+/** Inatividade (ms) que inicia o assentamento. */
+const INATIVIDADE_ASSENTAR = 10000;
+
+/** Duração (ms) do assentamento: a água se aquieta gradualmente. */
+const DURACAO_ASSENTAMENTO = 3000;
+
+/** Largura (px) da miniatura da fundação gravada no localStorage. */
+const LARGURA_MINIATURA = 256;
+
+/** Convite do ritual e dica do modo livre. */
+const TEXTO_CONVITE = 'pinte. o site vai se vestir de você.';
+const TEXTO_DICA = 'toque para pingar · arraste para mover a tinta';
 
 // ---------------------------------------------------------------------------
 // localStorage com rede de proteção: em modo anônimo restrito o acesso
@@ -119,9 +141,41 @@ let inicioLavagem = null;
 
 const reduzMovimento = window.matchMedia('(prefers-reduced-motion: reduce)');
 
+// --- estado do ritual -------------------------------------------------------
+
+// O usuário está no ritual de entrada? (primeira visita, sem tema salvo)
+let emRitual = false;
+
+// Telemetria do gesto durante o ritual — vira o escalar "calma" no fim.
+// Nada disso sai do navegador.
+const telemetria = { inicio: 0, taps: 0, drags: 0, somaVel: 0, nVel: 0 };
+
+// Velocidades do arraste em andamento (para a média do gesto no aoSoltar).
+let velArrasteAtual = 0;
+let nVelArrasteAtual = 0;
+
+// Última interação (qualquer gesto na água) — relógio da inatividade.
+let ultimaInteracao = performance.now();
+
+// Assentamento em andamento: timestamp inicial, ou null.
+let inicioAssentamento = null;
+
+// Multiplicador do ritmo da água vindo do tema salvo (1 = neutro).
+let fatorOndulacaoTema = 1;
+
 // ---------------------------------------------------------------------------
 // Gestos → fluido
 // ---------------------------------------------------------------------------
+
+/** Qualquer gesto na água: alimenta o relógio de inatividade do ritual e
+ *  cancela um assentamento em andamento (a água volta a acordar). */
+function registrarInteracao() {
+  ultimaInteracao = performance.now();
+  if (inicioAssentamento !== null) {
+    inicioAssentamento = null;
+    document.body.classList.remove('assentando');
+  }
+}
 
 const input = instalarInput(canvas, {
   aoPingar(x, y) {
@@ -132,13 +186,26 @@ const input = instalarInput(canvas, {
     } else {
       fluido.pingar(x, y, raio, hexParaRgb(corDoSwatch(selecao)));
     }
+    if (emRitual) telemetria.taps++;
+    registrarInteracao();
     esconderDica();
   },
   aoArrastar(x, y, mx, my, velPx) {
     fluido.mexer(x, y, mx, my, velPx, RAIO_ESTILETE);
+    velArrasteAtual += velPx;
+    nVelArrasteAtual++;
+    registrarInteracao();
   },
   aoSoltar() {
-    // Nada a fazer: o momentum da própria água continua o movimento.
+    // O momentum da água continua o movimento sozinho; aqui só fechamos a
+    // contabilidade do gesto (um arraste = um gesto, com sua vel. média).
+    if (emRitual && nVelArrasteAtual > 0) {
+      telemetria.drags++;
+      telemetria.somaVel += velArrasteAtual / nVelArrasteAtual;
+      telemetria.nVel++;
+    }
+    velArrasteAtual = 0;
+    nVelArrasteAtual = 0;
   },
 });
 
@@ -154,8 +221,38 @@ function quadro(agora) {
   if (quadroAnterior !== null) {
     const dt = Math.min((agora - quadroAnterior) / 1000, DT_MAXIMO);
 
+    // --- ritual: a obra assenta após gestos suficientes + inatividade ----
+    let fatorOndulacao = fatorOndulacaoTema;
+    if (emRitual) {
+      const gestos = telemetria.taps + telemetria.drags;
+      if (
+        inicioAssentamento === null &&
+        gestos >= GESTOS_MINIMOS &&
+        agora - ultimaInteracao > INATIVIDADE_ASSENTAR
+      ) {
+        if (reduzMovimento.matches) {
+          // Sem animação longa: o assentamento é um corte.
+          concluirRitual();
+        } else {
+          inicioAssentamento = agora;
+          // Sem countdown: só a UI esmaecendo sinaliza o momento.
+          document.body.classList.add('assentando');
+        }
+      }
+      if (inicioAssentamento !== null) {
+        const progresso = (agora - inicioAssentamento) / DURACAO_ASSENTAMENTO;
+        // A respiração desacelera até a água se aquietar por completo.
+        fatorOndulacao = Math.max(0, 1 - progresso);
+        if (progresso >= 1) {
+          inicioAssentamento = null;
+          document.body.classList.remove('assentando');
+          concluirRitual();
+        }
+      }
+    }
+
     // A respiração ambiente é decorativa — respeita reduced-motion.
-    fluido.passo(dt, reduzMovimento.matches ? 0 : 1);
+    fluido.passo(dt, reduzMovimento.matches ? 0 : fatorOndulacao);
 
     // Lavagem: dilui a densidade num ritmo que zera a obra em
     // DURACAO_LAVAR (fração constante por segundo ⇒ decaimento suave).
@@ -184,6 +281,127 @@ function lavar() {
   } else {
     inicioLavagem = performance.now();
   }
+  // Durante o ritual: lavar não conta como gesto nem zera a contagem,
+  // mas reinicia o relógio de inatividade (senão a bacia recém-lavada
+  // assentaria no segundo seguinte, vazia).
+  registrarInteracao();
+}
+
+// ---------------------------------------------------------------------------
+// Ritual de entrada: conclusão, tema e persistência
+// ---------------------------------------------------------------------------
+
+/**
+ * A água assentou: extrai o tema da obra e do gesto, veste o site e
+ * grava a fundação. Se a obra for tímida demais (tema null), segue para
+ * o modo livre sem cerimônia — e sem gravar, para que a próxima visita
+ * ofereça o ritual de novo.
+ */
+function concluirRitual() {
+  emRitual = false;
+
+  const amostra = fluido.capturar(64);
+  const tema = extrairTema(amostra.pixels, amostra.w, amostra.h, hexParaRgb(COR_PAPEL));
+  if (!tema) return;
+
+  const minutos = Math.max((performance.now() - telemetria.inicio) / 60000, 1 / 60);
+  const gestos = telemetria.taps + telemetria.drags;
+  const calma = calcularCalma({
+    gestosPorMinuto: gestos / minutos,
+    velocidadeMedia: telemetria.nVel ? telemetria.somaVel / telemetria.nVel : 0,
+    proporcaoTap: gestos ? telemetria.taps / gestos : 1,
+  });
+
+  aplicarTema(tema, calma, true);
+
+  // A fundação: miniatura da obra que acabou de vestir o site.
+  const miniatura = capturaParaDataUrl(fluido.capturar(LARGURA_MINIATURA));
+  gravarArmazenado(CHAVE_RITUAL, {
+    tema,
+    calma,
+    miniatura,
+    timestamp: Date.now(),
+    gestos,
+  });
+  mostrarSelo(miniatura);
+
+  // "este é o seu lugar." — breve, discreto, e some sozinho.
+  const aviso = document.getElementById('aviso');
+  aviso.hidden = false;
+  requestAnimationFrame(() => aviso.classList.add('visivel'));
+  setTimeout(() => aviso.classList.remove('visivel'), 4200);
+}
+
+/**
+ * Veste o site com o tema: cores da UI via CSS custom properties, papel
+ * da simulação com leve tint, e o temperamento (calma) no ritmo da água
+ * e na duração das transições.
+ */
+function aplicarTema(tema, calma, comTransicao) {
+  const { ritmoOndulacao, duracaoTransicaoMs } = mapearCalma(calma);
+  const raiz = document.documentElement;
+
+  // Transição suave só quando o tema muda diante do usuário (no retorno,
+  // o site já abre vestido — sem teatro).
+  raiz.style.setProperty(
+    '--duracao-tema',
+    comTransicao && !reduzMovimento.matches ? `${duracaoTransicaoMs}ms` : '0ms'
+  );
+  raiz.style.setProperty('--papel', tema.fundo);
+  raiz.style.setProperty('--tinta', tema.acento);
+
+  fluido.definirPapel(hexParaRgb(tema.papel));
+  fluido.definirRitmo(ritmoOndulacao);
+  fatorOndulacaoTema = 1; // o ritmo já embute o temperamento
+}
+
+/** Pixels do capturar() → dataURL JPEG (linhas do WebGL vêm de baixo
+ *  para cima; aqui o eixo y é invertido ao desenhar). */
+function capturaParaDataUrl({ pixels, w, h }) {
+  const tela = document.createElement('canvas');
+  tela.width = w;
+  tela.height = h;
+  const ctx = tela.getContext('2d');
+  const imagem = ctx.createImageData(w, h);
+  for (let linha = 0; linha < h; linha++) {
+    const origem = (h - 1 - linha) * w * 4;
+    imagem.data.set(pixels.subarray(origem, origem + w * 4), linha * w * 4);
+  }
+  ctx.putImageData(imagem, 0, 0);
+  return tela.toDataURL('image/jpeg', 0.72);
+}
+
+// --- selo da fundação -------------------------------------------------------
+
+function mostrarSelo(miniatura) {
+  const selo = document.getElementById('selo');
+  document.getElementById('selo-img').src = miniatura;
+  selo.hidden = false;
+}
+
+function refazerRitual() {
+  gravarArmazenado(CHAVE_RITUAL, null);
+  document.getElementById('selo').hidden = true;
+  document.getElementById('popover-selo').hidden = true;
+
+  // Volta ao neutro e recomeça o fluxo do zero.
+  const raiz = document.documentElement;
+  raiz.style.setProperty('--duracao-tema', '0ms');
+  raiz.style.removeProperty('--papel');
+  raiz.style.removeProperty('--tinta');
+  fluido.definirPapel(hexParaRgb(COR_PAPEL));
+  fluido.definirRitmo(1);
+  fluido.desbotar(1);
+
+  telemetria.inicio = performance.now();
+  telemetria.taps = telemetria.drags = telemetria.somaVel = telemetria.nVel = 0;
+  emRitual = true;
+  ultimaInteracao = performance.now();
+
+  const dica = document.getElementById('dica');
+  dica.textContent = TEXTO_CONVITE;
+  dica.classList.remove('escondida');
+  dicaEscondida = false;
 }
 
 // ---------------------------------------------------------------------------
@@ -308,8 +526,29 @@ function esconderDica() {
 }
 
 // ---------------------------------------------------------------------------
-// Início
+// Início: primeira visita entra no ritual; retorno abre já vestido
 // ---------------------------------------------------------------------------
+
+const fundacao = lerArmazenado(CHAVE_RITUAL);
+if (fundacao && fundacao.tema) {
+  aplicarTema(fundacao.tema, fundacao.calma ?? 0.5, false);
+  if (fundacao.miniatura) mostrarSelo(fundacao.miniatura);
+  document.getElementById('dica').textContent = TEXTO_DICA;
+} else {
+  emRitual = true;
+  telemetria.inicio = performance.now();
+  document.getElementById('dica').textContent = TEXTO_CONVITE;
+}
+
+// Selo → popover com "refazer o ritual" / "fechar".
+const popoverSelo = document.getElementById('popover-selo');
+document.getElementById('selo').addEventListener('click', () => {
+  popoverSelo.hidden = !popoverSelo.hidden;
+});
+document.getElementById('refazer-ritual').addEventListener('click', refazerRitual);
+document.getElementById('fechar-selo').addEventListener('click', () => {
+  popoverSelo.hidden = true;
+});
 
 montarPaleta();
 document.getElementById('lavar').addEventListener('click', lavar);
