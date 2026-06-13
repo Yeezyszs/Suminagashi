@@ -735,40 +735,57 @@ botaoExportar.addEventListener('click', exportarObra);
  * disponível). Desenha o JPEG armazenado num canvas e exporta PNG —
  * o formato que se espera para salvar arte.
  */
-function exportarObra() {
+async function exportarObra() {
   const obra = obras[focoEstante];
   if (!obra) return;
   const fonte = obra.imagem || obra.miniatura;
-  const img = new Image();
-  img.onload = () => {
+  if (!fonte) return;
+
+  botaoExportar.textContent = 'baixando…';
+  try {
+    // Caminho preferido: re-encoda em PNG (formato esperado para arte).
+    const img = await carregarImagem(fonte);
     const cv = document.createElement('canvas');
     cv.width = img.naturalWidth;
     cv.height = img.naturalHeight;
     cv.getContext('2d').drawImage(img, 0, 0);
-    cv.toBlob((blob) => {
-      if (blob) baixarArquivo(blob, nomeDeArquivo(obra));
-    }, 'image/png');
-  };
-  img.src = fonte;
-
-  botaoExportar.textContent = 'baixando…';
-  setTimeout(() => (botaoExportar.textContent = 'exportar'), 1200);
+    const blob = await new Promise((res) => cv.toBlob(res, 'image/png'));
+    if (blob) baixarArquivo(URL.createObjectURL(blob), nomeDeArquivo(obra, 'png'), true);
+    else baixarArquivo(fonte, nomeDeArquivo(obra, 'jpg'), false); // fallback
+  } catch {
+    // Qualquer falha (toBlob, canvas) → baixa o JPEG guardado direto.
+    baixarArquivo(fonte, nomeDeArquivo(obra, 'jpg'), false);
+  }
+  setTimeout(() => (botaoExportar.textContent = 'exportar'), 1000);
 }
 
-/** Dispara o download de um Blob via um <a download> temporário. */
-function baixarArquivo(blob, nome) {
-  const url = URL.createObjectURL(blob);
+function carregarImagem(src) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => resolve(img);
+    img.onerror = reject;
+    img.src = src;
+  });
+}
+
+/**
+ * Dispara o download via um <a download> temporário. Para object URLs a
+ * revogação é ADIADA: revogar logo após o clique cancela o download em
+ * alguns navegadores, porque a leitura do blob ainda nem começou.
+ */
+function baixarArquivo(href, nome, ehObjectUrl) {
   const a = document.createElement('a');
-  a.href = url;
+  a.href = href;
   a.download = nome;
+  a.rel = 'noopener';
   document.body.appendChild(a);
   a.click();
   a.remove();
-  URL.revokeObjectURL(url);
+  if (ehObjectUrl) setTimeout(() => URL.revokeObjectURL(href), 4000);
 }
 
 /** Nome de arquivo amigável: "suminagashi-mare-da-noite-20260613.png". */
-function nomeDeArquivo(obra) {
+function nomeDeArquivo(obra, extensao) {
   const slug = obra.nome
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '') // remove acentos (marcas combinantes)
@@ -777,7 +794,7 @@ function nomeDeArquivo(obra) {
     .replace(/^-|-$/g, '');
   const d = new Date(obra.criadaEm);
   const data = `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}`;
-  return `suminagashi-${slug || 'obra'}-${data}.png`;
+  return `suminagashi-${slug || 'obra'}-${data}.${extensao}`;
 }
 
 // ---------------------------------------------------------------------------
