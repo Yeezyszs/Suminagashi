@@ -161,6 +161,8 @@ topo de `fluido.js` (dissipação, vorticidade, força da gota, ondas...).
       metadados, fundação marcada com 元 e impossível de apagar
 - [x] Persistência: fundacao.v1 (tom da luz) + estante.v1 (obras)
 - [x] reduced-motion colapsa todas as sequências em cortes
+- [x] Exportar obra em PNG (capturada em ~1024px ao guardar; download com
+      nome amigável; cota do localStorage tratada)
 
 ---
 
@@ -192,9 +194,7 @@ sugerida:
    **não é garantido** (GPUs diferem em ponto flutuante). Caminho viável:
    gravar a *sequência de gestos*, não confiar na reprodução numérica
    idêntica. O PRNG e o registro de comandos já estão preparados.
-1. **Export PNG/alta resolução** — a ação "exportar" na estante é um
-   placeholder; falta renderizar a obra num framebuffer grande.
-2. **Modo som** (Web Audio).
+1. **Modo som** (Web Audio).
 
 (Ritual de entrada, extração de paleta/temperamento e o tokonoma já
 entregues.)

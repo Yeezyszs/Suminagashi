@@ -67,7 +67,14 @@ const GUARDAR_SELAR = 600;
 const GUARDAR_ENROLAR = 1200;
 const GUARDAR_RECOLHER = 800;
 
-const LARGURA_MINIATURA = 360; // px da imagem guardada (JPEG)
+// Lado maior (px) da imagem guardada por obra. Serve a DOIS usos: a
+// vitrine da estante (exibida reduzida) e o download. Não dá para
+// re-renderizar uma obra guardada em alta resolução depois — a simulação
+// não guarda estado por obra, só esta imagem —, então capturamos aqui num
+// tamanho bom para baixar/compartilhar. JPEG 0.85 ≈ 100–200KB por obra;
+// localStorage (~5MB) comporta dezenas antes da cota apertar (ver
+// salvarEstante, que descarta a obra mais antiga se faltar espaço).
+const LARGURA_OBRA = 1024;
 
 // ---------------------------------------------------------------------------
 // localStorage com rede de proteção (modo anônimo restrito não derruba o
@@ -322,8 +329,8 @@ async function guardar(ehFundacao = false) {
   await dorme(reduz ? 0 : GUARDAR_ASSENTAR);
 
   // Captura a obra já assentada (cores finais; sem a atmosfera, que é só
-  // overlay — a miniatura guarda a pintura "crua").
-  const captura = fluido.capturar(LARGURA_MINIATURA);
+  // overlay — a imagem guarda a pintura "crua").
+  const captura = fluido.capturar(LARGURA_OBRA);
   const dataUrl = capturaParaDataUrl(captura);
   const tom = extrairTomFundacao(captura.pixels, captura.w, captura.h, hexParaRgb(COR_PAPEL));
 
@@ -400,18 +407,35 @@ function capturaParaDataUrl({ pixels, w, h }) {
     imagem.data.set(pixels.subarray(origem, origem + w * 4), linha * w * 4);
   }
   ctx.putImageData(imagem, 0, 0);
-  return tela.toDataURL('image/jpeg', 0.72);
+  return tela.toDataURL('image/jpeg', 0.85);
 }
 
-function registrarObra(miniatura, calidez, ehFundacao) {
+function registrarObra(imagem, calidez, ehFundacao) {
   obras.push({
     id: 'o' + Date.now().toString(36),
     nome: gerarNome(new Date(), calidez, rng),
     criadaEm: Date.now(),
-    miniatura,
+    imagem,
     ehFundacao,
   });
-  gravarArmazenado(CHAVE_ESTANTE, obras);
+  salvarEstante();
+}
+
+/** Persiste a estante, com folga para a cota do localStorage: se faltar
+ *  espaço, descarta a obra mais antiga que NÃO seja a fundação (ela é
+ *  permanente) e tenta de novo. */
+function salvarEstante() {
+  try {
+    localStorage.setItem(CHAVE_ESTANTE, JSON.stringify(obras));
+  } catch {
+    const i = obras.findIndex((o) => !o.ehFundacao);
+    if (i >= 0) {
+      obras.splice(i, 1);
+      salvarEstante();
+    }
+    // Se só a fundação resta e ainda não cabe, desiste em silêncio: a
+    // sessão segue funcionando, só não persiste.
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -597,7 +621,8 @@ function renderEstante() {
 
   focoEstante = Math.max(0, Math.min(focoEstante, obras.length - 1));
   const obra = obras[focoEstante];
-  obraImg.src = obra.miniatura;
+  // imagem é o campo atual; miniatura é o de obras salvas antes do export.
+  obraImg.src = obra.imagem || obra.miniatura;
   obraNome.textContent = obra.nome;
   // Metadados: hora de criação; a fundação ganha a marca 元 ("origem").
   obraMeta.innerHTML = `${horaFormatada(obra.criadaEm)}${
@@ -608,9 +633,8 @@ function renderEstante() {
   botaoApagar.disabled = obra.ehFundacao;
   botaoApagar.textContent = 'apagar';
   confirmandoApagar = false;
-  // Export ainda não existe nesta versão: placeholder desabilitado.
-  botaoExportar.disabled = true;
-  botaoExportar.title = 'em breve';
+  botaoExportar.disabled = false;
+  botaoExportar.textContent = 'exportar';
 }
 
 function navegar(passo) {
@@ -671,7 +695,7 @@ function salvarNome() {
   const nome = obraNome.textContent.trim();
   if (nome) {
     obras[focoEstante].nome = nome;
-    gravarArmazenado(CHAVE_ESTANTE, obras);
+    salvarEstante();
   } else {
     obraNome.textContent = obras[focoEstante].nome;
   }
@@ -695,7 +719,7 @@ botaoApagar.addEventListener('click', () => {
     return;
   }
   obras.splice(focoEstante, 1);
-  gravarArmazenado(CHAVE_ESTANTE, obras);
+  salvarEstante();
   if (obras.length === 0) fecharEstante();
   else {
     focoEstante = Math.max(0, focoEstante - 1);
@@ -703,11 +727,58 @@ botaoApagar.addEventListener('click', () => {
   }
 });
 
-botaoExportar.addEventListener('click', () => {
-  // Export em alta resolução é uma versão futura; aqui só sinaliza.
-  botaoExportar.textContent = 'em breve';
+botaoExportar.addEventListener('click', exportarObra);
+
+/**
+ * Baixa a obra em foco como PNG. A imagem é a que foi capturada ao guardar
+ * (a simulação não guarda estado por obra, então é esta a resolução
+ * disponível). Desenha o JPEG armazenado num canvas e exporta PNG —
+ * o formato que se espera para salvar arte.
+ */
+function exportarObra() {
+  const obra = obras[focoEstante];
+  if (!obra) return;
+  const fonte = obra.imagem || obra.miniatura;
+  const img = new Image();
+  img.onload = () => {
+    const cv = document.createElement('canvas');
+    cv.width = img.naturalWidth;
+    cv.height = img.naturalHeight;
+    cv.getContext('2d').drawImage(img, 0, 0);
+    cv.toBlob((blob) => {
+      if (blob) baixarArquivo(blob, nomeDeArquivo(obra));
+    }, 'image/png');
+  };
+  img.src = fonte;
+
+  botaoExportar.textContent = 'baixando…';
   setTimeout(() => (botaoExportar.textContent = 'exportar'), 1200);
-});
+}
+
+/** Dispara o download de um Blob via um <a download> temporário. */
+function baixarArquivo(blob, nome) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = nome;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
+/** Nome de arquivo amigável: "suminagashi-mare-da-noite-20260613.png". */
+function nomeDeArquivo(obra) {
+  const slug = obra.nome
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '') // remove acentos (marcas combinantes)
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-|-$/g, '');
+  const d = new Date(obra.criadaEm);
+  const data = `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}`;
+  return `suminagashi-${slug || 'obra'}-${data}.png`;
+}
 
 // ---------------------------------------------------------------------------
 // Início
