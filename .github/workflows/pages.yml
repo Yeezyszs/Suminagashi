@@ -7,8 +7,7 @@ name: deploy-pages
 
 on:
   push:
-    # Branch de desenvolvimento atual + main (para quando houver merge).
-    branches: [main, claude/quirky-maxwell-vrwsbg]
+    branches: [main]
   # Permite disparar manualmente pela aba Actions.
   workflow_dispatch:
 
