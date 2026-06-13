@@ -32,7 +32,8 @@ jobs:
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:
-          # Sem build: a raiz do repositório É o site.
-          path: .
+          # Sem build: a pasta docs/ É o site (mesma pasta que o modo
+          # "Deploy from a branch → /docs" usa — os dois modos funcionam).
+          path: docs
       - id: deployment
         uses: actions/deploy-pages@v4

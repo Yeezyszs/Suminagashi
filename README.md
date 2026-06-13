@@ -11,8 +11,8 @@ Sirva a pasta com qualquer servidor estático e abra no navegador
 (requer WebGL2, presente em todo navegador moderno):
 
 ```sh
-npx serve
-# ou: python3 -m http.server
+npx serve docs
+# ou: python3 -m http.server -d docs
 ```
 
 > É preciso um servidor (não abrir o arquivo direto) porque o projeto usa
@@ -20,11 +20,16 @@ npx serve
 
 ### Deploy (GitHub Pages)
 
-O repositório já vem com o workflow `.github/workflows/pages.yml`: todo
-push na `main` publica o site automaticamente. Só é preciso ativar uma vez
-em **Settings → Pages → Source: "GitHub Actions"**. Não há build — a raiz
-do repositório é o site (todos os caminhos são relativos, então funciona
-em `usuario.github.io/repositorio/` sem configuração).
+O site vive na pasta **`docs/`** e não há build, então **os dois modos**
+do Pages funcionam:
+
+- **Deploy from a branch** → branch `main`, pasta `/docs` (o
+  `docs/.nojekyll` pula o processamento Jekyll); ou
+- **GitHub Actions** → o workflow `.github/workflows/pages.yml` publica
+  `docs/` a cada push na `main`.
+
+Todos os caminhos são relativos, então funciona em
+`usuario.github.io/repositorio/` sem configuração extra.
 
 Funciona com mouse e com toque:
 

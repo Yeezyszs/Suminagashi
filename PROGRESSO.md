@@ -42,13 +42,15 @@ tom educacional. UI mínima e em português.
 
 ```
 suminagashi/
-  index.html        # tela cheia: canvas + título + dica + barra de cores
-  styles.css        # UI quieta, touch-action: none, prefers-reduced-motion
-  js/
-    prng.js         # PRNG seedável (mulberry32) — determinismo desde o dia 1
-    fluido.js       # MOTOR: solver de Navier-Stokes em WebGL2 + shaders GLSL
-    input.js        # Pointer Events → gestos (tap = gota, drag = estilete)
-    main.js         # orquestração, UI, loop de animação
+  docs/             # o site publicado pelo GitHub Pages (sem build)
+    index.html      # tela cheia: canvas + título + dica + barra de cores
+    styles.css      # UI quieta, touch-action: none, prefers-reduced-motion
+    js/
+      prng.js       # PRNG seedável (mulberry32) — determinismo desde o dia 1
+      fluido.js     # MOTOR: solver de Navier-Stokes em WebGL2 + shaders GLSL
+      input.js      # Pointer Events → gestos (tap = gota, drag = estilete)
+      main.js       # orquestração, UI, loop de animação
+  .github/workflows/pages.yml  # deploy automático a cada push na main
   README.md         # como rodar + explicação da física
   PROGRESSO.md      # este arquivo
   package.json      # metadados (sem dependências)
