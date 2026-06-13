@@ -33,11 +33,11 @@
 
 /** Resolução da grade de VELOCIDADE (lado menor, células). A correnteza é
  *  suave por natureza; uma grade grossa basta e mantém o custo mínimo. */
-export const RES_VELOCIDADE = 144;
+export const RES_VELOCIDADE = 176;
 
 /** Resolução da grade de TINTA (lado menor, células). Mais fina que a de
  *  velocidade: é nela que o olho repara — bordas e filamentos do corante. */
-export const RES_TINTA = 720;
+export const RES_TINTA = 1024;
 
 /** Dissipação da velocidade (1/s). A correnteza perde energia devagar:
  *  valores baixos = a água continua se mexendo muito tempo depois do
@@ -55,9 +55,10 @@ export const DISSIPACAO_TINTA = 0;
 export const ITERACOES_PRESSAO = 24;
 
 /** Força do confinamento de vorticidade. A advecção numérica borra os
- *  pequenos redemoinhos; este passo os detecta e re-amplifica. É o que
- *  separa um fluido "vivo", cheio de espirais, de um borrão amortecido. */
-export const VORTICIDADE = 7;
+ *  pequenos redemoinhos; este passo os detecta e re-amplifica. Com
+ *  moderação: forte demais, ele amplifica ruído na escala da célula e a
+ *  tinta ganha bordas serrilhadas ("dentes" do tamanho da grade). */
+export const VORTICIDADE = 4;
 
 /** Quanto da pressão sobrevive de um quadro para o outro (chute inicial
  *  do Jacobi — começar perto da solução anterior converge mais rápido). */
@@ -119,6 +120,47 @@ void main() {
   vec2 origem = vUv - uDt * vel * uTexel;
   vec4 valor = texture(uFonte, origem);
   saida = valor / (1.0 + uDissipacao * uDt);
+}`;
+
+// CORREÇÃO DE MacCORMACK: a advecção semi-lagrangiana simples tem DIFUSÃO
+// NUMÉRICA — a interpolação bilinear borra um pouquinho a cada quadro, e
+// em minutos a obra inteira vira uma lama cinza sem filamentos. O esquema
+// de MacCormack mede esse erro e o compensa: advecta para frente (φ1),
+// advecta φ1 de VOLTA no tempo (φ2) e compara com o original — se a
+// advecção fosse perfeita, φ2 == φ0; a diferença é o erro, e somamos
+// metade dele ao resultado. Isso recupera quase toda a nitidez (precisão
+// de 2ª ordem) pelo preço de uma textura a mais.
+//
+// O clamp final limita o valor corrigido ao intervalo dos 4 vizinhos da
+// célula de origem: sem ele a compensação cria overshoots — cores que
+// nunca existiram na bacia (franjas psicodélicas nas bordas).
+const FS_MACCORMACK = `#version 300 es
+precision highp float;
+in vec2 vUv;
+out vec4 saida;
+uniform sampler2D uVelocidade;
+uniform sampler2D uFonte;      // φ0 — a tinta original
+uniform sampler2D uPrevisto;   // φ1 — advecção simples já feita
+uniform vec2 uTexel;           // texel da grade de velocidade
+uniform vec2 uTexelFonte;      // texel da grade de tinta
+uniform float uDt;
+void main() {
+  vec2 vel = texture(uVelocidade, vUv).xy;
+
+  // φ2: leva o previsto DE VOLTA no tempo (traço para a frente).
+  vec4 phi2 = texture(uPrevisto, vUv + uDt * vel * uTexel);
+  vec4 phi0 = texture(uFonte, vUv);
+  vec4 phi1 = texture(uPrevisto, vUv);
+  vec4 corrigido = phi1 + 0.5 * (phi0 - phi2);
+
+  // Intervalo permitido: os 4 texels que cercam a origem do traço.
+  vec2 origem = vUv - uDt * vel * uTexel;
+  vec2 base = (floor(origem / uTexelFonte - 0.5) + 0.5) * uTexelFonte;
+  vec4 a = texture(uFonte, base);
+  vec4 b = texture(uFonte, base + vec2(uTexelFonte.x, 0.0));
+  vec4 c = texture(uFonte, base + vec2(0.0, uTexelFonte.y));
+  vec4 d = texture(uFonte, base + uTexelFonte);
+  saida = clamp(corrigido, min(min(a, b), min(c, d)), max(max(a, b), max(c, d)));
 }`;
 
 // DIVERGÊNCIA: mede, célula a célula, quanto a correnteza está "criando"
@@ -411,6 +453,7 @@ export function criarFluido(canvas, corPapel) {
   }
 
   const progAdveccao = programa(FS_ADVECCAO);
+  const progMacCormack = programa(FS_MACCORMACK);
   const progDivergencia = programa(FS_DIVERGENCIA);
   const progPressao = programa(FS_PRESSAO);
   const progProjecao = programa(FS_PROJECAO);
@@ -452,8 +495,9 @@ export function criarFluido(canvas, corPapel) {
     };
   }
 
-  let velocidade, tinta, pressao, divergencia, rotacional;
+  let velocidade, tinta, tintaIntermedia, pressao, divergencia, rotacional;
   let texelVel = [0, 0];
+  let texelTinta = [0, 0];
   let proporcao = 1;
 
   /** Dimensiona uma grade pela RESOLUÇÃO do lado menor, mantendo a
@@ -476,9 +520,12 @@ export function criarFluido(canvas, corPapel) {
     const [vw, vh] = dimensoes(RES_VELOCIDADE);
     const [tw, th] = dimensoes(RES_TINTA);
     texelVel = [1 / vw, 1 / vh];
+    texelTinta = [1 / tw, 1 / th];
 
     velocidade = criarDuplo(vw, vh, gl.RG16F, gl.RG, gl.LINEAR);
     tinta = criarDuplo(tw, th, gl.RGBA16F, gl.RGBA, gl.LINEAR);
+    // Alvo intermediário da advecção MacCormack (guarda o φ1 previsto).
+    tintaIntermedia = criarAlvo(tw, th, gl.RGBA16F, gl.RGBA, gl.LINEAR);
     pressao = criarDuplo(vw, vh, gl.R16F, gl.RED, gl.NEAREST);
     divergencia = criarAlvo(vw, vh, gl.R16F, gl.RED, gl.NEAREST);
     rotacional = criarAlvo(vw, vh, gl.R16F, gl.RED, gl.NEAREST);
@@ -611,14 +658,25 @@ export function criarFluido(canvas, corPapel) {
     passada(progContorno, velocidade.escreve);
     velocidade.trocar();
 
-    // 6. A correnteza carrega a tinta.
+    // 6. A correnteza carrega a tinta — em duas passadas (MacCormack):
+    //    primeiro a advecção simples (φ1), depois a correção do erro, que
+    //    devolve a nitidez que a interpolação roubaria.
     gl.useProgram(progAdveccao.p);
     gl.uniform1i(progAdveccao.u.uVelocidade, ligarTextura(0, velocidade.lê.tex));
     gl.uniform1i(progAdveccao.u.uFonte, ligarTextura(1, tinta.lê.tex));
     gl.uniform2f(progAdveccao.u.uTexel, texelVel[0], texelVel[1]);
     gl.uniform1f(progAdveccao.u.uDt, dt);
     gl.uniform1f(progAdveccao.u.uDissipacao, DISSIPACAO_TINTA);
-    passada(progAdveccao, tinta.escreve);
+    passada(progAdveccao, tintaIntermedia);
+
+    gl.useProgram(progMacCormack.p);
+    gl.uniform1i(progMacCormack.u.uVelocidade, ligarTextura(0, velocidade.lê.tex));
+    gl.uniform1i(progMacCormack.u.uFonte, ligarTextura(1, tinta.lê.tex));
+    gl.uniform1i(progMacCormack.u.uPrevisto, ligarTextura(2, tintaIntermedia.tex));
+    gl.uniform2f(progMacCormack.u.uTexel, texelVel[0], texelVel[1]);
+    gl.uniform2f(progMacCormack.u.uTexelFonte, texelTinta[0], texelTinta[1]);
+    gl.uniform1f(progMacCormack.u.uDt, dt);
+    passada(progMacCormack, tinta.escreve);
     tinta.trocar();
   }
 
