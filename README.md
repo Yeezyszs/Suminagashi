@@ -115,8 +115,10 @@ combinando duas fontes (ver `luz.js`, funções puras):
 assenta, um **selo hanko** (印) carimba a obra, ela se **enrola em
 pergaminho** e é recolhida para a estante. Cada obra ganha um nome em PT-BR
 gerado da hora + temperatura (ex.: "Maré da Noite", "Âmbar das Três"),
-renomeável depois. Na estante, **exportar** baixa a obra em PNG (a imagem é
-capturada ao guardar, em ~1024px).
+renomeável depois. Na estante, **exportar** baixa a obra em PNG **4K**
+(3840px): a obra é guardada em Full HD e ampliada para 4K na exportação, já
+no tamanho do monitor — pronta para wallpaper, sem o sistema operacional
+ter de esticá-la.
 
 **Ritual de entrada (primeira visita).** A sala nasce neutra e convida:
 *"pinte. esta sala vai nascer das suas cores."* Você pinta; após alguns

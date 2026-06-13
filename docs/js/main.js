@@ -67,14 +67,20 @@ const GUARDAR_SELAR = 600;
 const GUARDAR_ENROLAR = 1200;
 const GUARDAR_RECOLHER = 800;
 
-// Lado maior (px) da imagem guardada por obra. Serve a DOIS usos: a
-// vitrine da estante (exibida reduzida) e o download. Não dá para
-// re-renderizar uma obra guardada em alta resolução depois — a simulação
-// não guarda estado por obra, só esta imagem —, então capturamos aqui num
-// tamanho bom para baixar/compartilhar. JPEG 0.85 ≈ 100–200KB por obra;
-// localStorage (~5MB) comporta dezenas antes da cota apertar (ver
-// salvarEstante, que descarta a obra mais antiga se faltar espaço).
-const LARGURA_OBRA = 1024;
+// Lado maior (px) da imagem GUARDADA por obra. A grade de tinta da
+// simulação tem ~1820px no maior lado, então ~1920 captura praticamente
+// todo o detalhe que existe (não dá para re-renderizar uma obra antiga em
+// mais resolução depois — a simulação não guarda estado por obra). JPEG
+// 0.9 ≈ 250–400KB por obra; localStorage (~5MB) comporta uns 15+ antes da
+// cota apertar (ver salvarEstante, que descarta a mais antiga se faltar).
+const LARGURA_OBRA = 1920;
+
+// Lado maior (px) do PNG EXPORTADO. Maior que o guardado de propósito:
+// um arquivo 4K já vem no tamanho do monitor, então o sistema operacional
+// não precisa esticá-lo para virar wallpaper (era esse esticamento que
+// borrava a imagem). Marmoreio é suave por natureza, então a ampliação
+// de ~1920 para 3840 com interpolação de qualidade fica limpa.
+const LARGURA_EXPORT = 3840;
 
 // ---------------------------------------------------------------------------
 // localStorage com rede de proteção (modo anônimo restrito não derruba o
@@ -407,7 +413,7 @@ function capturaParaDataUrl({ pixels, w, h }) {
     imagem.data.set(pixels.subarray(origem, origem + w * 4), linha * w * 4);
   }
   ctx.putImageData(imagem, 0, 0);
-  return tela.toDataURL('image/jpeg', 0.85);
+  return tela.toDataURL('image/jpeg', 0.9);
 }
 
 function registrarObra(imagem, calidez, ehFundacao) {
@@ -741,14 +747,21 @@ async function exportarObra() {
   const fonte = obra.imagem || obra.miniatura;
   if (!fonte) return;
 
-  botaoExportar.textContent = 'baixando…';
+  botaoExportar.textContent = 'gerando 4K…';
   try {
-    // Caminho preferido: re-encoda em PNG (formato esperado para arte).
     const img = await carregarImagem(fonte);
+    // Amplia para 4K (lado maior = LARGURA_EXPORT), mantendo a proporção,
+    // com interpolação de alta qualidade — wallpaper pronto, sem o sistema
+    // operacional ter de esticar (que é o que borrava antes). Se a imagem
+    // já for maior, não amplia: respeita o tamanho nativo.
+    const escala = Math.max(1, LARGURA_EXPORT / img.naturalWidth);
     const cv = document.createElement('canvas');
-    cv.width = img.naturalWidth;
-    cv.height = img.naturalHeight;
-    cv.getContext('2d').drawImage(img, 0, 0);
+    cv.width = Math.round(img.naturalWidth * escala);
+    cv.height = Math.round(img.naturalHeight * escala);
+    const ctx = cv.getContext('2d');
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = 'high';
+    ctx.drawImage(img, 0, 0, cv.width, cv.height);
     const blob = await new Promise((res) => cv.toBlob(res, 'image/png'));
     if (blob) baixarArquivo(URL.createObjectURL(blob), nomeDeArquivo(obra, 'png'), true);
     else baixarArquivo(fonte, nomeDeArquivo(obra, 'jpg'), false); // fallback
@@ -756,7 +769,7 @@ async function exportarObra() {
     // Qualquer falha (toBlob, canvas) → baixa o JPEG guardado direto.
     baixarArquivo(fonte, nomeDeArquivo(obra, 'jpg'), false);
   }
-  setTimeout(() => (botaoExportar.textContent = 'exportar'), 1000);
+  setTimeout(() => (botaoExportar.textContent = 'exportar'), 1200);
 }
 
 function carregarImagem(src) {

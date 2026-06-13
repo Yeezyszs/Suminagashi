@@ -161,8 +161,8 @@ topo de `fluido.js` (dissipação, vorticidade, força da gota, ondas...).
       metadados, fundação marcada com 元 e impossível de apagar
 - [x] Persistência: fundacao.v1 (tom da luz) + estante.v1 (obras)
 - [x] reduced-motion colapsa todas as sequências em cortes
-- [x] Exportar obra em PNG (capturada em ~1024px ao guardar; download com
-      nome amigável; cota do localStorage tratada)
+- [x] Exportar obra em PNG 4K (guardada em Full HD, ampliada para 3840px
+      no export — wallpaper-ready; nome amigável; cota tratada)
 
 ---
 
