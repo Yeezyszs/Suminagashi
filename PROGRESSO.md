@@ -74,7 +74,7 @@ aleatoriedade passa pelo PRNG seedável — base para o futuro replay por seed.
 A água é simulada pelas equações de **Navier-Stokes** para fluido
 incompressível (método *stable fluids*, Jos Stam 1999), rodando inteiramente
 na GPU. Duas grades vivem em texturas: **velocidade** da correnteza (grade
-grossa, 144) e **tinta** (grade fina, 720). Cada passo é um shader. Por
+grossa, 176) e **tinta** (grade fina, 1024). Cada passo é um shader. Por
 quadro:
 
 1. **Advecção da velocidade** — a correnteza carrega a si mesma (semi-
