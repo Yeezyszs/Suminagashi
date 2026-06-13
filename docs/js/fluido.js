@@ -49,6 +49,16 @@ export const DISSIPACAO_VELOCIDADE = 0.45;
  *  fica. (O botão lavar usa outro mecanismo, o desbotamento.) */
 export const DISSIPACAO_TINTA = 0;
 
+/** Teto da densidade óptica por canal. exp(-8) ≈ 0.0003: além disso o
+ *  pixel já é visualmente preto — acumular mais só desperdiçaria a faixa
+ *  do half-float e deixaria o "lavar" e a água mais lentos para diluir. */
+export const DENSIDADE_MAXIMA = 8;
+
+/** Quanta densidade uma gota de "água" remove no centro do splat. No
+ *  suminagashi real a "água" leva dispersante: ela ABRE a tinta, diluindo
+ *  o pigmento localmente — é isso que desenha os anéis claros. */
+export const DILUICAO_AGUA = 3;
+
 /** Iterações de Jacobi do solucionador de pressão. Mais iterações = fluido
  *  mais rigorosamente incompressível, porém mais caro. ~24 é o ponto doce
  *  visual: abaixo disso a tinta "infla" perceptivelmente nos gestos. */
@@ -327,21 +337,24 @@ void main() {
 // SPLAT: injeta algo (tinta ou correnteza) num ponto, com queda gaussiana.
 // Modos:
 //   0 — somar vetor à velocidade
-//   1 — pintar cor na tinta (gota: mistura em direção à cor, não soma —
-//       somar saturaria para o branco)
+//   1 — somar DENSIDADE de pigmento (gota de tinta; ver FS_EXIBIR para a
+//       física — somar densidades é o que faz azul + amarelo = verde)
 //   2 — somar empurrão RADIAL à velocidade (gota abrindo espaço em anel)
 //   3 — IMPOR vetor à velocidade (estilete: a água sob o dedo adota a
 //       velocidade do gesto — arrasto sem deslizamento, como um bastão
 //       de verdade na água; auto-limitado, nunca acumula além do gesto)
+//   4 — DILUIR: subtrai densidade (gota de água com dispersante abrindo
+//       a tinta — clamp em zero: não existe pigmento negativo)
 const FS_SPLAT = `#version 300 es
 precision highp float;
 in vec2 vUv;
 out vec4 saida;
 uniform sampler2D uAlvo;
 uniform vec2 uPonto;       // centro, em coordenadas de textura
-uniform vec3 uValor;       // vetor (modos 0/2: x,y + força em x) ou cor
+uniform vec3 uValor;       // vetor (modos 0/2/3) ou densidade (1/4)
 uniform float uRaio;       // raio² gaussiano, corrigido por proporção
 uniform float uProporcao;  // largura/altura do canvas
+uniform float uDensidadeMax;
 uniform int uModo;
 void main() {
   vec2 d = vUv - uPonto;
@@ -351,12 +364,14 @@ void main() {
   if (uModo == 0) {
     saida = vec4(base.xy + uValor.xy * g, 0.0, 1.0);
   } else if (uModo == 1) {
-    saida = vec4(mix(base.rgb, uValor, clamp(g, 0.0, 1.0)), 1.0);
+    saida = vec4(min(base.rgb + uValor * g, vec3(uDensidadeMax)), 1.0);
   } else if (uModo == 2) {
     vec2 dir = d / (length(d) + 1e-5);
     saida = vec4(base.xy + dir * uValor.x * g, 0.0, 1.0);
-  } else {
+  } else if (uModo == 3) {
     saida = vec4(mix(base.xy, uValor.xy, clamp(g, 0.0, 1.0)), 0.0, 1.0);
+  } else {
+    saida = vec4(max(base.rgb - uValor * g, vec3(0.0)), 1.0);
   }
 }`;
 
@@ -375,14 +390,29 @@ void main() {
   saida = vec4(mix(base.rgb, uCor, uFator), 1.0);
 }`;
 
-// EXIBIÇÃO: leva a textura de tinta à tela.
+// EXIBIÇÃO: converte densidade de pigmento em cor (lei de Beer-Lambert).
+//
+// A textura de tinta não guarda COR — guarda DENSIDADE ÓPTICA por canal
+// (quanto pigmento absorvendo luz há em cada ponto). A cor que o olho vê
+// é a luz do papel atravessando esse pigmento:
+//
+//     cor = papel · exp(−D)
+//
+// É a física de tinta de verdade (mistura SUBTRATIVA): pigmento azul
+// absorve vermelho, pigmento amarelo absorve azul — onde os dois se
+// misturam, sobra o verde. Somar densidades equivale a multiplicar
+// transmitâncias: exp(−D₁)·exp(−D₂) = exp(−(D₁+D₂)). Em RGB aditivo,
+// azul + amarelo daria um cinza lavado; em Beer-Lambert dá verde, e
+// muitas camadas escurecem naturalmente, como tinta real saturando.
 const FS_EXIBIR = `#version 300 es
 precision highp float;
 in vec2 vUv;
 out vec4 saida;
 uniform sampler2D uTinta;
+uniform vec3 uPapel;
 void main() {
-  saida = vec4(texture(uTinta, vUv).rgb, 1.0);
+  vec3 densidade = texture(uTinta, vUv).rgb;
+  saida = vec4(uPapel * exp(-densidade), 1.0);
 }`;
 
 // ---------------------------------------------------------------------------
@@ -465,15 +495,25 @@ export function criarFluido(canvas, corPapel) {
   const progDesbotar = programa(FS_DESBOTAR);
   const progExibir = programa(FS_EXIBIR);
 
+  // O papel é mutável: o ritual de entrada pode tingi-lo levemente com o
+  // tema extraído da obra. Como a textura de tinta guarda DENSIDADE (não
+  // cor), trocar o papel é só trocar um uniform — a obra não é afetada.
+  let papel = [corPapel[0], corPapel[1], corPapel[2]];
+
+  // Multiplicador do relógio da ondulação (o "temperamento" da água, que
+  // o ritual calibra: gesto calmo → respiração mais lenta).
+  let ritmoOndulacao = 1;
+  let tempoOnda = 0; // relógio interno acumulado (contínuo mesmo se o ritmo mudar)
+
   // --- framebuffers das grades --------------------------------------------
-  function criarAlvo(w, h, formatoInterno, formato, filtro) {
+  function criarAlvo(w, h, formatoInterno, formato, filtro, tipo = gl.HALF_FLOAT) {
     const tex = gl.createTexture();
     gl.bindTexture(gl.TEXTURE_2D, tex);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, filtro);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, filtro);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-    gl.texImage2D(gl.TEXTURE_2D, 0, formatoInterno, w, h, 0, formato, gl.HALF_FLOAT, null);
+    gl.texImage2D(gl.TEXTURE_2D, 0, formatoInterno, w, h, 0, formato, tipo, null);
     const fbo = gl.createFramebuffer();
     gl.bindFramebuffer(gl.FRAMEBUFFER, fbo);
     gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, tex, 0);
@@ -530,9 +570,10 @@ export function criarFluido(canvas, corPapel) {
     divergencia = criarAlvo(vw, vh, gl.R16F, gl.RED, gl.NEAREST);
     rotacional = criarAlvo(vw, vh, gl.R16F, gl.RED, gl.NEAREST);
 
-    // A bacia começa como papel limpo.
+    // A bacia começa sem pigmento: densidade zero = papel limpo
+    // (exp(−0) = 1, o pixel mostra a cor do papel intacta).
     gl.bindFramebuffer(gl.FRAMEBUFFER, tinta.lê.fbo);
-    gl.clearColor(corPapel[0], corPapel[1], corPapel[2], 1);
+    gl.clearColor(0, 0, 0, 1);
     gl.clear(gl.COLOR_BUFFER_BIT);
   }
 
@@ -557,13 +598,16 @@ export function criarFluido(canvas, corPapel) {
   /**
    * Avança a física dt segundos (ver o roteiro de passos no topo).
    *
-   * @param {number} t  - tempo absoluto (s), para as fases da ondulação
    * @param {number} dt - passo (s), já limitado por quem chama
-   * @param {boolean} ondular - injeta a respiração ambiente? (desligada
-   *                            sob prefers-reduced-motion)
+   * @param {number} fatorOndulacao - intensidade da respiração ambiente,
+   *   0..1. Zero desliga (prefers-reduced-motion); valores intermediários
+   *   servem ao "assentamento" do ritual, quando a água se aquieta
+   *   gradualmente. O relógio das ondas é interno e avança em
+   *   dt·ritmoOndulacao — contínuo mesmo quando o ritmo muda.
    */
-  function passo(t, dt, ondular) {
+  function passo(dt, fatorOndulacao) {
     gl.bindVertexArray(vao);
+    tempoOnda += dt * ritmoOndulacao;
 
     // 1. A correnteza carrega a si mesma.
     gl.useProgram(progAdveccao.p);
@@ -590,18 +634,18 @@ export function criarFluido(canvas, corPapel) {
     passada(progVorticidade, velocidade.escreve);
     velocidade.trocar();
 
-    // 3. A água respira.
-    if (ondular) {
+    // 3. A água respira (com a intensidade pedida).
+    if (fatorOndulacao > 0) {
       gl.useProgram(progOndulacao.p);
       gl.uniform1i(progOndulacao.u.uVelocidade, ligarTextura(0, velocidade.lê.tex));
       gl.uniform2f(progOndulacao.u.uDimensao, canvas.clientWidth, canvas.clientHeight);
-      gl.uniform1f(progOndulacao.u.uTempo, t);
+      gl.uniform1f(progOndulacao.u.uTempo, tempoOnda);
       gl.uniform1f(progOndulacao.u.uDt, dt);
       const k = (l) => (2 * Math.PI) / l;
       // As amplitudes viram unidades da simulação: a velocidade vive em
       // células/s, então aceleração em px/s² é dividida pelo tamanho da
       // célula em px (≈ clientHeight·texel).
-      const escala = 1 / (canvas.clientHeight * texelVel[1] || 1);
+      const escala = fatorOndulacao / (canvas.clientHeight * texelVel[1] || 1);
       gl.uniform4f(progOndulacao.u.uOnda1, ONDAS[0].amp * escala, k(ONDAS[0].lx), k(ONDAS[0].ly), 0);
       gl.uniform4f(progOndulacao.u.uOnda2, ONDAS[1].amp * escala, k(ONDAS[1].lx), k(ONDAS[1].ly), 0);
       gl.uniform4f(progOndulacao.u.uFases, ONDAS[0].w1, ONDAS[0].w2, ONDAS[1].w1, ONDAS[1].w2);
@@ -704,23 +748,45 @@ export function criarFluido(canvas, corPapel) {
     gl.uniform3f(progSplat.u.uValor, valor[0], valor[1], valor[2]);
     gl.uniform1f(progSplat.u.uRaio, raio2(raioPx));
     gl.uniform1f(progSplat.u.uProporcao, proporcao);
+    gl.uniform1f(progSplat.u.uDensidadeMax, DENSIDADE_MAXIMA);
     gl.uniform1i(progSplat.u.uModo, modo);
     passada(progSplat, alvoDuplo.escreve);
     alvoDuplo.trocar();
   }
 
   /**
-   * Pinga uma gota: pinta o corante e empurra a água em anel para fora —
-   * é o empurrão que abre espaço e desloca a tinta vizinha, como a tensão
-   * superficial faz com uma gota de sumi de verdade. Pingar "água" (cor do
-   * papel) só empurra visivelmente: os anéis clássicos do suminagashi.
+   * Pinga uma gota de tinta: soma DENSIDADE de pigmento e empurra a água
+   * em anel para fora — o empurrão que abre espaço e desloca a tinta
+   * vizinha, como a tensão superficial faz com uma gota de sumi real.
+   *
+   * A conversão cor → densidade inverte a Beer-Lambert: se queremos que
+   * uma camada da tinta pura mostre a cor C sobre papel branco, a
+   * densidade é D = −ln(C) (pois exp(−(−ln C)) = C). O ε protege cores
+   * com canal zero (−ln(0) = ∞).
    *
    * @param {[number,number,number]} cor - RGB em [0,1]
    */
   function pingar(x, y, raioPx, cor) {
-    splat(tinta, x, y, cor, raioPx, 1);
+    const eps = 1e-3;
+    const densidade = [
+      -Math.log(Math.max(cor[0], eps)),
+      -Math.log(Math.max(cor[1], eps)),
+      -Math.log(Math.max(cor[2], eps)),
+    ];
+    splat(tinta, x, y, densidade, raioPx, 1);
     // O empurrão radial alcança além da mancha de cor (a água ao redor
     // também se move) — daí o raio maior.
+    splat(velocidade, x, y, [FORCA_GOTA, 0, 0], raioPx * 1.6, 2);
+  }
+
+  /**
+   * Pinga uma gota de "água": DILUI o pigmento local (subtrai densidade,
+   * nunca abaixo de zero) e dá o mesmo empurrão radial de uma gota de
+   * tinta. É o dispersante do suminagashi clássico: alternar tinta e água
+   * no mesmo ponto desenha anéis concêntricos.
+   */
+  function pingarAgua(x, y, raioPx) {
+    splat(tinta, x, y, [DILUICAO_AGUA, DILUICAO_AGUA, DILUICAO_AGUA], raioPx, 4);
     splat(velocidade, x, y, [FORCA_GOTA, 0, 0], raioPx * 1.6, 2);
   }
 
@@ -742,25 +808,75 @@ export function criarFluido(canvas, corPapel) {
     splat(velocidade, x, y, [mx * v, -my * v, 0], raioPx, 3);
   }
 
-  /** Desbota toda a tinta em direção ao papel (0 = nada, 1 = limpa tudo). */
+  /** Desbota toda a tinta em direção ao papel (0 = nada, 1 = limpa tudo).
+   *  Em densidade, "papel" é simplesmente densidade zero. */
   function desbotar(fator) {
     gl.bindVertexArray(vao);
     gl.useProgram(progDesbotar.p);
     gl.uniform1i(progDesbotar.u.uAlvo, ligarTextura(0, tinta.lê.tex));
-    gl.uniform3f(progDesbotar.u.uCor, corPapel[0], corPapel[1], corPapel[2]);
+    gl.uniform3f(progDesbotar.u.uCor, 0, 0, 0);
     gl.uniform1f(progDesbotar.u.uFator, fator);
     passada(progDesbotar, tinta.escreve);
     tinta.trocar();
   }
 
-  /** Desenha a tinta na tela. */
+  /** Desenha a tinta na tela (densidade → cor via Beer-Lambert). */
   function exibir() {
     gl.bindVertexArray(vao);
     gl.useProgram(progExibir.p);
     gl.uniform1i(progExibir.u.uTinta, ligarTextura(0, tinta.lê.tex));
+    gl.uniform3f(progExibir.u.uPapel, papel[0], papel[1], papel[2]);
     passada(progExibir, null);
   }
 
+  /** Tinge o papel (a obra não muda: densidade independe do papel). */
+  function definirPapel(rgb) {
+    papel = [rgb[0], rgb[1], rgb[2]];
+  }
+
+  /** Ajusta o ritmo da respiração ambiente (1 = padrão; <1 mais lenta). */
+  function definirRitmo(fator) {
+    ritmoOndulacao = fator;
+  }
+
+  /**
+   * Captura a obra renderizada (cores finais, já com papel e Beer-Lambert)
+   * num bitmap pequeno — usado pelo ritual para extrair o tema e gerar a
+   * miniatura. Retorna { pixels: Uint8Array RGBA, w, h }; linhas na ordem
+   * do WebGL (de baixo para cima — quem desenhar em canvas 2D deve
+   * inverter o eixo y).
+   */
+  function capturar(largura) {
+    const w = Math.max(1, Math.round(largura));
+    const h = Math.max(1, Math.round(w / proporcao));
+    const alvo = criarAlvo(w, h, gl.RGBA8, gl.RGBA, gl.LINEAR, gl.UNSIGNED_BYTE);
+
+    gl.bindVertexArray(vao);
+    gl.useProgram(progExibir.p);
+    gl.uniform1i(progExibir.u.uTinta, ligarTextura(0, tinta.lê.tex));
+    gl.uniform3f(progExibir.u.uPapel, papel[0], papel[1], papel[2]);
+    passada(progExibir, alvo);
+
+    const pixels = new Uint8Array(w * h * 4);
+    gl.readPixels(0, 0, w, h, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
+
+    // Alvo descartável: liberar agora evita acumular texturas órfãs.
+    gl.deleteFramebuffer(alvo.fbo);
+    gl.deleteTexture(alvo.tex);
+    return { pixels, w, h };
+  }
+
   redimensionar();
-  return { redimensionar, passo, pingar, mexer, desbotar, exibir };
+  return {
+    redimensionar,
+    passo,
+    pingar,
+    pingarAgua,
+    mexer,
+    desbotar,
+    exibir,
+    definirPapel,
+    definirRitmo,
+    capturar,
+  };
 }

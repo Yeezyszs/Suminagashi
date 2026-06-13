@@ -22,6 +22,15 @@
     <button id="lavar">lavar</button>
   </nav>
 
+  <!-- Editor de cor de um swatch (abre com long-press). O <input
+       type="color"> nativo é o seletor: zero dependências. -->
+  <div id="editor-cor" hidden>
+    <label class="trocar">trocar cor
+      <input type="color" id="entrada-cor">
+    </label>
+    <button id="restaurar-cor" hidden>restaurar padrão</button>
+  </div>
+
   <script type="module" src="js/main.js"></script>
 </body>
 </html>
