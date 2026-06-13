@@ -161,8 +161,12 @@ topo de `fluido.js` (dissipação, vorticidade, força da gota, ondas...).
       metadados, fundação marcada com 元 e impossível de apagar
 - [x] Persistência: fundacao.v1 (tom da luz) + estante.v1 (obras)
 - [x] reduced-motion colapsa todas as sequências em cortes
-- [x] Exportar obra em PNG 4K (guardada em Full HD, ampliada para 3840px
-      no export — wallpaper-ready; nome amigável; cota tratada)
+- [x] Exportar obra em PNG 4K (wallpaper-ready), capturada na resolução
+      NATIVA da grade de tinta
+- [x] Resolução de tinta ADAPTATIVA (desktop forte ~2048 → ~3640px
+      nativos; mobile 1024) — detalhe real, não ampliação
+- [x] Imagens das obras no IndexedDB (cota grande); metadados no
+      localStorage; migração das obras antigas embutidas
 
 ---
 

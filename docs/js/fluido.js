@@ -443,9 +443,15 @@ void main() {
  *
  * @param {HTMLCanvasElement} canvas
  * @param {[number, number, number]} corPapel - RGB do papel em [0, 1]
+ * @param {{ resTinta?: number }} [opcoes] - resTinta sobrescreve a
+ *   resolução da grade de tinta (lado menor). Maior = mais detalhe real e
+ *   exportações mais nítidas, porém mais caro: quem chama decide conforme
+ *   o aparelho. A grade de VELOCIDADE fica fixa de propósito — a correnteza
+ *   é suave e as constantes do motor são calibradas nela.
  * @returns o motor, ou lança Error se WebGL2 + texturas float não existirem
  */
-export function criarFluido(canvas, corPapel) {
+export function criarFluido(canvas, corPapel, opcoes = {}) {
+  const resTinta = opcoes.resTinta || RES_TINTA;
   const gl = canvas.getContext('webgl2', {
     alpha: false,
     depth: false,
@@ -557,6 +563,7 @@ export function criarFluido(canvas, corPapel) {
   let velocidade, tinta, tintaIntermedia, pressao, divergencia, rotacional;
   let texelVel = [0, 0];
   let texelTinta = [0, 0];
+  let dimsTinta = [0, 0]; // dimensões reais da grade de tinta (px)
   let proporcao = 1;
 
   /** Dimensiona uma grade pela RESOLUÇÃO do lado menor, mantendo a
@@ -577,7 +584,8 @@ export function criarFluido(canvas, corPapel) {
     // Redimensionar descarta a obra (raro: rotação de tela). Preservar o
     // conteúdo exigiria re-advectar entre grades; não vale a complexidade.
     const [vw, vh] = dimensoes(RES_VELOCIDADE);
-    const [tw, th] = dimensoes(RES_TINTA);
+    const [tw, th] = dimensoes(resTinta);
+    dimsTinta = [tw, th];
     texelVel = [1 / vw, 1 / vh];
     texelTinta = [1 / tw, 1 / th];
 
@@ -886,6 +894,12 @@ export function criarFluido(canvas, corPapel) {
     return { pixels, w, h };
   }
 
+  /** Dimensões reais [w, h] da grade de tinta — o teto de detalhe que uma
+   *  captura pode ter (capturar acima disso só interpola, não cria nitidez). */
+  function dimensoesTinta() {
+    return [dimsTinta[0], dimsTinta[1]];
+  }
+
   redimensionar();
   return {
     redimensionar,
@@ -898,5 +912,6 @@ export function criarFluido(canvas, corPapel) {
     definirPapel,
     definirRitmo,
     capturar,
+    dimensoesTinta,
   };
 }

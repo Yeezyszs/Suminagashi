@@ -67,19 +67,16 @@ const GUARDAR_SELAR = 600;
 const GUARDAR_ENROLAR = 1200;
 const GUARDAR_RECOLHER = 800;
 
-// Lado maior (px) da imagem GUARDADA por obra. A grade de tinta da
-// simulação tem ~1820px no maior lado, então ~1920 captura praticamente
-// todo o detalhe que existe (não dá para re-renderizar uma obra antiga em
-// mais resolução depois — a simulação não guarda estado por obra). JPEG
-// 0.9 ≈ 250–400KB por obra; localStorage (~5MB) comporta uns 15+ antes da
-// cota apertar (ver salvarEstante, que descarta a mais antiga se faltar).
-const LARGURA_OBRA = 1920;
+// A imagem de cada obra é GUARDADA na resolução NATIVA da grade de tinta
+// (ver larguraCaptura) — todo o detalhe que a simulação produziu, sem
+// desperdício. Essas imagens são grandes (1–3MB), então vivem no
+// IndexedDB (cota de centenas de MB), não no localStorage (~5MB); só os
+// metadados leves ficam no localStorage.
 
-// Lado maior (px) do PNG EXPORTADO. Maior que o guardado de propósito:
-// um arquivo 4K já vem no tamanho do monitor, então o sistema operacional
-// não precisa esticá-lo para virar wallpaper (era esse esticamento que
-// borrava a imagem). Marmoreio é suave por natureza, então a ampliação
-// de ~1920 para 3840 com interpolação de qualidade fica limpa.
+// Lado maior (px) do PNG EXPORTADO. Um arquivo 4K já vem no tamanho do
+// monitor, então o sistema operacional não precisa esticá-lo para virar
+// wallpaper. Se a captura nativa for menor, sobe-se até aqui (ampliação
+// leve, limpa em marmoreio); se for maior, exporta no tamanho nativo.
 const LARGURA_EXPORT = 3840;
 
 // ---------------------------------------------------------------------------
@@ -105,6 +102,62 @@ function gravarArmazenado(chave, valor) {
   }
 }
 
+// --- IndexedDB: as imagens das obras (grandes demais p/ o localStorage) ---
+// Cota de centenas de MB. Se indexedDB falhar (modo restrito), o chamador
+// cai para guardar a imagem embutida na própria obra (ver registrarObra).
+
+const IDB_STORE = 'imagens';
+let _idb = null;
+
+function abrirBanco() {
+  if (_idb) return _idb;
+  _idb = new Promise((resolve, reject) => {
+    try {
+      const req = indexedDB.open('suminagashi', 1);
+      req.onupgradeneeded = () => req.result.createObjectStore(IDB_STORE);
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => reject(req.error);
+    } catch (e) {
+      reject(e);
+    }
+  });
+  return _idb;
+}
+
+async function idbGravar(chave, valor) {
+  const db = await abrirBanco();
+  return new Promise((res, rej) => {
+    const tx = db.transaction(IDB_STORE, 'readwrite');
+    tx.objectStore(IDB_STORE).put(valor, chave);
+    tx.oncomplete = () => res();
+    tx.onerror = () => rej(tx.error);
+  });
+}
+
+async function idbLer(chave) {
+  const db = await abrirBanco();
+  return new Promise((res, rej) => {
+    const tx = db.transaction(IDB_STORE, 'readonly');
+    const r = tx.objectStore(IDB_STORE).get(chave);
+    r.onsuccess = () => res(r.result || null);
+    r.onerror = () => rej(r.error);
+  });
+}
+
+async function idbApagar(chave) {
+  try {
+    const db = await abrirBanco();
+    await new Promise((res) => {
+      const tx = db.transaction(IDB_STORE, 'readwrite');
+      tx.objectStore(IDB_STORE).delete(chave);
+      tx.oncomplete = () => res();
+      tx.onerror = () => res(); // apagar é best-effort
+    });
+  } catch {
+    /* sem banco: nada a apagar */
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Montagem
 // ---------------------------------------------------------------------------
@@ -120,10 +173,27 @@ function hexParaRgb(hex) {
 
 const rng = mulberry32(Date.now());
 
+/**
+ * Resolução da grade de tinta conforme o aparelho. É o que define o
+ * DETALHE REAL da água (e, portanto, a nitidez das exportações): ampliar
+ * depois não cria detalhe, só a simulação em resolução maior cria. Por
+ * isso desktops potentes ganham uma grade bem mais fina; celulares ficam
+ * leves para não perder os 60fps. A grade de velocidade não muda.
+ */
+function escolherResTinta() {
+  const fino = matchMedia('(pointer: fine)').matches; // mouse, não dedo
+  const nucleos = navigator.hardwareConcurrency || 4;
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  const ladoMaiorFisico = Math.max(screen.width, screen.height) * dpr;
+  if (fino && nucleos >= 8 && ladoMaiorFisico >= 2200) return 2048; // tela grande + CPU forte
+  if (fino && ladoMaiorFisico >= 1500) return 1536; // desktop comum
+  return 1024; // mobile / leve (o valor original)
+}
+
 const canvas = document.getElementById('agua');
 let fluido;
 try {
-  fluido = criarFluido(canvas, hexParaRgb(COR_PAPEL));
+  fluido = criarFluido(canvas, hexParaRgb(COR_PAPEL), { resTinta: escolherResTinta() });
 } catch (e) {
   document.getElementById('convite').textContent =
     'este navegador não suporta a simulação de água (WebGL2)';
@@ -334,9 +404,10 @@ async function guardar(ehFundacao = false) {
   ondulacaoAlvo = 0;
   await dorme(reduz ? 0 : GUARDAR_ASSENTAR);
 
-  // Captura a obra já assentada (cores finais; sem a atmosfera, que é só
-  // overlay — a imagem guarda a pintura "crua").
-  const captura = fluido.capturar(LARGURA_OBRA);
+  // Captura a obra já assentada na resolução NATIVA da grade de tinta —
+  // todo o detalhe que a simulação produziu (sem a atmosfera, que é só
+  // overlay). É essa imagem que alimenta a vitrine e a exportação.
+  const captura = fluido.capturar(larguraCaptura());
   const dataUrl = capturaParaDataUrl(captura);
   const tom = extrairTomFundacao(captura.pixels, captura.w, captura.h, hexParaRgb(COR_PAPEL));
 
@@ -348,7 +419,7 @@ async function guardar(ehFundacao = false) {
   if (!reduz) await enrolarPergaminho(dataUrl);
 
   // Registra a obra na estante.
-  registrarObra(dataUrl, tom.calidez, ehFundacao);
+  await registrarObra(dataUrl, tom.calidez, ehFundacao);
 
   // 5. Água limpa, cena escondida, volta ao ocioso.
   fluido.desbotar(1);
@@ -413,18 +484,47 @@ function capturaParaDataUrl({ pixels, w, h }) {
     imagem.data.set(pixels.subarray(origem, origem + w * 4), linha * w * 4);
   }
   ctx.putImageData(imagem, 0, 0);
-  return tela.toDataURL('image/jpeg', 0.9);
+  return tela.toDataURL('image/jpeg', 0.92);
 }
 
-function registrarObra(imagem, calidez, ehFundacao) {
-  obras.push({
-    id: 'o' + Date.now().toString(36),
+/** Lado maior da captura: a resolução nativa da grade de tinta, sem passar
+ *  do alvo de export (não adianta guardar além do que vira arquivo). */
+function larguraCaptura() {
+  return Math.min(fluido.dimensoesTinta()[0], LARGURA_EXPORT);
+}
+
+/**
+ * Registra a obra: metadados leves no localStorage, imagem (grande) no
+ * IndexedDB. Se o banco falhar, embute a imagem na própria obra como
+ * fallback (vale ao menos na sessão).
+ */
+async function registrarObra(dataUrl, calidez, ehFundacao) {
+  const id = 'o' + Date.now().toString(36);
+  const obra = {
+    id,
     nome: gerarNome(new Date(), calidez, rng),
     criadaEm: Date.now(),
-    imagem,
     ehFundacao,
-  });
+  };
+  try {
+    await idbGravar(id, dataUrl);
+  } catch {
+    obra.imagem = dataUrl; // fallback: embutida (sem IndexedDB)
+  }
+  obras.push(obra);
   salvarEstante();
+}
+
+/** Recupera a imagem de uma obra: embutida (obras antigas/fallback) ou
+ *  do IndexedDB. */
+async function obterImagem(obra) {
+  if (obra.imagem) return obra.imagem;
+  if (obra.miniatura) return obra.miniatura; // compat: nome do campo antigo
+  try {
+    return await idbLer(obra.id);
+  } catch {
+    return null;
+  }
 }
 
 /** Persiste a estante, com folga para a cota do localStorage: se faltar
@@ -436,7 +536,8 @@ function salvarEstante() {
   } catch {
     const i = obras.findIndex((o) => !o.ehFundacao);
     if (i >= 0) {
-      obras.splice(i, 1);
+      const [removida] = obras.splice(i, 1);
+      idbApagar(removida.id); // não deixa a imagem órfã no banco
       salvarEstante();
     }
     // Se só a fundação resta e ainda não cabe, desiste em silêncio: a
@@ -618,7 +719,7 @@ function fecharEstante() {
   estante.hidden = true;
 }
 
-function renderEstante() {
+async function renderEstante() {
   const vazia = obras.length === 0;
   estanteVazia.hidden = !vazia;
   figura.style.display = vazia ? 'none' : '';
@@ -627,8 +728,10 @@ function renderEstante() {
 
   focoEstante = Math.max(0, Math.min(focoEstante, obras.length - 1));
   const obra = obras[focoEstante];
-  // imagem é o campo atual; miniatura é o de obras salvas antes do export.
-  obraImg.src = obra.imagem || obra.miniatura;
+  obterImagem(obra).then((src) => {
+    // Só aplica se ainda estamos nesta obra (navegação rápida).
+    if (obras[focoEstante] === obra && src) obraImg.src = src;
+  });
   obraNome.textContent = obra.nome;
   // Metadados: hora de criação; a fundação ganha a marca 元 ("origem").
   obraMeta.innerHTML = `${horaFormatada(obra.criadaEm)}${
@@ -724,7 +827,8 @@ botaoApagar.addEventListener('click', () => {
     botaoApagar.textContent = 'confirmar?';
     return;
   }
-  obras.splice(focoEstante, 1);
+  const [removida] = obras.splice(focoEstante, 1);
+  idbApagar(removida.id); // libera a imagem do banco (best-effort)
   salvarEstante();
   if (obras.length === 0) fecharEstante();
   else {
@@ -744,7 +848,7 @@ botaoExportar.addEventListener('click', exportarObra);
 async function exportarObra() {
   const obra = obras[focoEstante];
   if (!obra) return;
-  const fonte = obra.imagem || obra.miniatura;
+  const fonte = await obterImagem(obra);
   if (!fonte) return;
 
   botaoExportar.textContent = 'gerando 4K…';
@@ -831,3 +935,24 @@ if (!tomFundacao) {
 atualizarAtmosfera();
 setInterval(atualizarAtmosfera, 60000);
 requestAnimationFrame(quadro);
+
+// Migra imagens de obras antigas (que ficavam embutidas no localStorage)
+// para o IndexedDB, aliviando a cota. Best-effort, em segundo plano.
+migrarImagens();
+
+async function migrarImagens() {
+  let mudou = false;
+  for (const obra of obras) {
+    const inline = obra.imagem || obra.miniatura;
+    if (!inline) continue;
+    try {
+      await idbGravar(obra.id, inline);
+      delete obra.imagem;
+      delete obra.miniatura;
+      mudou = true;
+    } catch {
+      /* sem IndexedDB: mantém embutida */
+    }
+  }
+  if (mudou) salvarEstante();
+}
