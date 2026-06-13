@@ -3,17 +3,18 @@
 Registro do que já foi construído, em que pé está cada coisa e o que vem a
 seguir. Documento vivo: atualizar a cada marco.
 
-_Última atualização: 12/06/2026 — branch `claude/quirky-maxwell-vrwsbg`_
+_Última atualização: 13/06/2026 — branch `main`_
 
 ---
 
 ## Onde estamos
 
-A **v1 (motor + modo livre)** está funcional e, na prática, **superou o
-brief**: a pedido, o motor de marbling geométrico foi substituído por uma
-**simulação de fluido real em WebGL2**, que entrega a fluidez de um
-suminagashi autêntico — tinta que se mistura, esfumaça, redemoinha e agora
-bate nas bordas e volta.
+A **v1 (motor + modo livre)** e a **v2 (cores + ritual de entrada)** estão
+funcionais. O motor de marbling geométrico do brief original foi substituído
+por uma **simulação de fluido real em WebGL2** (a pedido, após o vídeo de
+referência), com mistura de pigmento físico (Beer-Lambert) e paredes que
+refletem a tinta. O ritual de entrada extrai um tema da primeira pintura e
+veste o site com ele.
 
 Restrições do brief mantidas: **zero dependências, zero build, zero
 framework**. Abre com qualquer servidor estático. Comentários em PT-BR com
@@ -35,6 +36,10 @@ tom educacional. UI mínima e em português.
 | 3 | `1248909` | **Água viva** | Campo de correnteza ambiente (função de corrente ψ) — a tinta passa a derivar sozinha. Melhorou, mas não era fluido de verdade. |
 | 4 | `11a37e9` | **Motor novo: fluido real** | Reescrita completa: Navier-Stokes na GPU (stable fluids de Jos Stam). Esta é a fluidez desejada. |
 | 5 | `beef5da` | **Paredes** | A tinta bate na borda e volta (condição de não-penetração). |
+| 6 | `d059272` | **Nitidez** | Advecção MacCormack (anti-difusão), grades mais finas, menos serrilhado. |
+| 7 | `b91b499` | **Deploy** | Site movido para `docs/`; GitHub Pages funcionando nos dois modos. |
+| 8 | `df3e426` | **v2 cores** | Mistura subtrativa Beer-Lambert (densidade óptica), 10 tintas + água que dilui, cor personalizada por long-press. |
+| 9 | `205cdfb` | **v2 ritual** | Ritual de entrada: a primeira pintura define o tema do site (cores + calma), persistido em localStorage com selo da fundação. |
 
 ---
 
@@ -49,7 +54,8 @@ suminagashi/
       prng.js       # PRNG seedável (mulberry32) — determinismo desde o dia 1
       fluido.js     # MOTOR: solver de Navier-Stokes em WebGL2 + shaders GLSL
       input.js      # Pointer Events → gestos (tap = gota, drag = estilete)
-      main.js       # orquestração, UI, loop de animação
+      ritual.js     # extração de tema e calma — funções puras
+      main.js       # orquestração, UI, ritual, loop de animação
   .github/workflows/pages.yml  # deploy automático a cada push na main
   README.md         # como rodar + explicação da física
   PROGRESSO.md      # este arquivo
@@ -82,7 +88,13 @@ quadro:
    a tinta bate na borda e volta; tangente livre (escorrega na margem).
 5. **Projeção de pressão** — divergência → Jacobi (24 iter.) → subtrai o
    gradiente: impõe incompressibilidade.
-6. **Advecção da tinta** — a correnteza carrega o corante.
+6. **Advecção da tinta** — em duas passadas (MacCormack: mede e compensa o
+   erro de interpolação — filamentos continuam nítidos).
+
+**Cores:** a textura de tinta guarda **densidade óptica** (Beer-Lambert):
+`cor = papel · exp(−D)`. Pingar soma densidade; "água" subtrai (dilui).
+Azul + amarelo → verde, como pigmento de verdade. O papel é um uniform —
+o tema do ritual o tinge sem tocar a obra.
 
 Gestos viram *splats* gaussianos: a **gota** pinta corante + empurra a água
 em anel (abre espaço); a **água** (cor do papel) só empurra — anéis
@@ -110,6 +122,24 @@ topo de `fluido.js` (dissipação, vorticidade, força da gota, ondas...).
 - [x] `devicePixelRatio` respeitado (teto 2)
 - [x] Fallback claro quando não há WebGL2
 - [x] UI 100% em PT-BR
+
+### v2 — cores e ritual
+
+- [x] Mistura subtrativa Beer-Lambert (azul+amarelo→verde; camadas saturam)
+- [x] Água dilui pigmento (anéis claros, fiel ao dispersante real)
+- [x] 10 tintas + água; barra rolável no mobile (pan-x só nela)
+- [x] Long-press num swatch → cor personalizada (localStorage, anel fino,
+      restaurar padrão)
+- [x] Ritual de entrada: convite → pintura → assentamento por inatividade
+      (≥3 gestos + 10s; cancelável; UI esmaece sem countdown)
+- [x] Extração de tema: dominantes por matiz ponderadas por densidade;
+      acento com contraste WCAG AA; fundo dessaturado; papel com tint
+- [x] Temperamento: telemetria de gesto → calma ∈ [0,1] → ritmo da água e
+      duração das transições (função pura calibrável em ritual.js)
+- [x] Persistência ritual.v1 (tema, calma, miniatura JPEG, telemetria
+      local); retorno abre vestido; selo da fundação com "refazer o ritual"
+- [x] Casos de borda: reduced-motion (cortes), obra vazia (sem tema),
+      localStorage indisponível (vale só na sessão), lavar não conta gesto
 
 ---
 
@@ -141,9 +171,10 @@ sugerida:
    **não é garantido** (GPUs diferem em ponto flutuante). Caminho viável:
    gravar a *sequência de gestos*, não confiar na reprodução numérica
    idêntica. O PRNG e o registro de comandos já estão preparados.
-3. **Ritual de entrada** (1ª pintura define o tema do site, em localStorage).
-4. **Modo som** (Web Audio).
-5. **Extração de paleta/temperamento** da obra.
+3. **Modo som** (Web Audio).
+
+(O ritual de entrada e a extração de paleta/temperamento foram entregues
+na v2.)
 
 ---
 

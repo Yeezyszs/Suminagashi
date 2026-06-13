@@ -64,9 +64,41 @@ célula por thread da GPU. Por quadro:
    é incompressível — água que circula sem se acumular nem rarefazer.
 5. A correnteza **carrega a tinta** (advecção de novo, agora do corante).
 
-Os gestos viram *splats* gaussianos: a gota pinta corante e injeta um
+Os gestos viram *splats* gaussianos: a gota deposita pigmento e injeta um
 empurrão radial (o anel que abre espaço); o estilete injeta correnteza na
 direção do movimento — e a física faz o resto.
+
+## As cores (Beer-Lambert: pigmento de verdade)
+
+A textura de tinta não guarda cor — guarda **densidade óptica**: quanto
+pigmento absorvendo luz existe em cada ponto. A cor que você vê é a luz do
+papel atravessando esse pigmento:
+
+```
+cor = papel · exp(−densidade)
+```
+
+É a lei de Beer-Lambert, a física da tinta real (mistura **subtrativa**):
+pigmento azul absorve o vermelho da luz, pigmento amarelo absorve o azul —
+onde os dois se encontram, sobra o **verde**. Em RGB comum, azul + amarelo
+daria um cinza lavado. E como misturar é *somar densidades*, muitas camadas
+escurecem naturalmente, como tinta saturando o papel. A "água" subtrai
+densidade (dispersante abrindo a tinta) — é ela que desenha os anéis claros
+do suminagashi clássico.
+
+Na barra: 10 tintas + água, e **segurar um swatch (~450ms)** abre um seletor
+para personalizá-lo (persiste no navegador).
+
+## O ritual de entrada
+
+Na primeira visita o site convida: *"pinte. o site vai se vestir de você."*
+Depois de alguns gestos e 10s de quietude, a água assenta e o site extrai da
+obra um **tema** — as duas cores dominantes viram o fundo e o acento da UI
+(com contraste legível garantido), e o *jeito* de pintar (cadência,
+velocidade, pausas) vira um escalar de **calma** que dita o ritmo da
+respiração da água e das transições. Tudo fica só no seu navegador
+(`localStorage`), com uma miniatura da pintura-fundação num canto — toque
+nela para refazer o ritual.
 
 > A primeira versão deste projeto usava outra técnica — o marbling
 > geométrico de Aubrey Jaffer, com gotas como polígonos de borda nítida e
@@ -82,6 +114,7 @@ js/
   prng.js     # PRNG seedável (mulberry32) — determinismo desde o dia 1
   fluido.js   # motor: solver de Navier-Stokes em WebGL2 + shaders
   input.js    # pointer events → gestos (tap = gota, drag = estilete)
+  ritual.js   # extração de tema e calma (funções puras)
   main.js     # orquestração, UI, loop de animação
 ```
 
