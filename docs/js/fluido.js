@@ -67,8 +67,19 @@ export const ITERACOES_PRESSAO = 24;
 /** Força do confinamento de vorticidade. A advecção numérica borra os
  *  pequenos redemoinhos; este passo os detecta e re-amplifica. Com
  *  moderação: forte demais, ele amplifica ruído na escala da célula e a
- *  tinta ganha bordas serrilhadas ("dentes" do tamanho da grade). */
-export const VORTICIDADE = 4;
+ *  tinta ganha bordas serrilhadas ("dentes" do tamanho da grade) — e ele
+ *  nunca dorme: com a água quase parada, continuaria enrugando as bordas
+ *  para sempre. */
+export const VORTICIDADE = 2.5;
+
+/** Nitidez da tinta: quanto da correção MacCormack entra no resultado
+ *  (1 = correção total, 0 = advecção simples). A correção devolve a
+ *  nitidez que a interpolação rouba — mas em dose plena preserva até o
+ *  ruído de alta frequência, e a obra parada fica "crocante", granulada.
+ *  Tinta real tem difusão molecular: as micro-rugas se dissolvem em
+ *  gradientes cremosos e só as formas grandes permanecem. Este valor é o
+ *  ponto de equilíbrio: filamentos vivos, superfície limpa. */
+export const NITIDEZ_TINTA = 0.72;
 
 /** Quanto da pressão sobrevive de um quadro para o outro (chute inicial
  *  do Jacobi — começar perto da solução anterior converge mais rápido). */
@@ -90,7 +101,9 @@ export const FORCA_GOTA = 90;
  *  dissipação a equilibra num vaguear sutil e perpétuo. */
 export const ONDAS = [
   { amp: 2.6, lx: 420, ly: 360, w1: 0.23, w2: -0.19 },
-  { amp: 1.1, lx: 170, ly: 150, w1: -0.31, w2: 0.26 },
+  // A onda fina é a mais delicada: forte ou curta demais, ela fica
+  // franzindo as bordas da tinta parada em vez de fazê-la respirar.
+  { amp: 0.5, lx: 230, ly: 210, w1: -0.31, w2: 0.26 },
 ];
 
 /** Teto de devicePixelRatio (nitidez × custo de rasterização). */
@@ -154,6 +167,7 @@ uniform sampler2D uPrevisto;   // φ1 — advecção simples já feita
 uniform vec2 uTexel;           // texel da grade de velocidade
 uniform vec2 uTexelFonte;      // texel da grade de tinta
 uniform float uDt;
+uniform float uNitidez;        // 0 = só advecção suave, 1 = correção plena
 void main() {
   vec2 vel = texture(uVelocidade, vUv).xy;
 
@@ -170,7 +184,12 @@ void main() {
   vec4 b = texture(uFonte, base + vec2(uTexelFonte.x, 0.0));
   vec4 c = texture(uFonte, base + vec2(0.0, uTexelFonte.y));
   vec4 d = texture(uFonte, base + uTexelFonte);
-  saida = clamp(corrigido, min(min(a, b), min(c, d)), max(max(a, b), max(c, d)));
+  vec4 nitido = clamp(corrigido, min(min(a, b), min(c, d)), max(max(a, b), max(c, d)));
+
+  // Dose de nitidez: misturar a correção com a advecção suave equivale a
+  // uma leve DIFUSÃO — as micro-rugas se dissolvem como na tinta real
+  // (difusão molecular), e só as formas que importam permanecem.
+  saida = mix(phi1, nitido, uNitidez);
 }`;
 
 // DIVERGÊNCIA: mede, célula a célula, quanto a correnteza está "criando"
@@ -720,6 +739,7 @@ export function criarFluido(canvas, corPapel) {
     gl.uniform2f(progMacCormack.u.uTexel, texelVel[0], texelVel[1]);
     gl.uniform2f(progMacCormack.u.uTexelFonte, texelTinta[0], texelTinta[1]);
     gl.uniform1f(progMacCormack.u.uDt, dt);
+    gl.uniform1f(progMacCormack.u.uNitidez, NITIDEZ_TINTA);
     passada(progMacCormack, tinta.escreve);
     tinta.trocar();
   }
