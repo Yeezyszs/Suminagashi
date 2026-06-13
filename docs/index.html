@@ -8,7 +8,7 @@
   <title>墨流し — suminagashi</title>
   <link rel="stylesheet" href="styles.css">
 </head>
-<body>
+<body class="ocioso">
   <!-- O canvas é o protagonista: tela cheia, tudo o mais flutua sobre ele. -->
   <canvas id="agua"></canvas>
 
@@ -17,15 +17,27 @@
        barato. O gradiente é definido pelo sistema de luz (js/luz.js). -->
   <div id="atmosfera" aria-hidden="true"></div>
 
-  <h1 id="titulo">墨流し <span>suminagashi</span></h1>
+  <!-- Título vertical, à moda dos kakemono. Discretíssimo, no canto. -->
+  <h1 id="titulo" lang="ja">墨流し</h1>
 
-  <p id="dica">toque para pingar · arraste para mover a tinta</p>
+  <!-- Convite/dica efêmera: some após a primeira interação. -->
+  <p id="convite"></p>
 
-  <nav id="barra" aria-label="ferramentas">
-    <div id="paleta"><!-- swatches montados pelo main.js --></div>
-    <div id="divisor" role="presentation"></div>
-    <button id="lavar">lavar</button>
-  </nav>
+  <!-- Aba da estante: a "lombada" de um pergaminho espiando na margem
+       direita. Puxá-la abre o tokonoma. -->
+  <button id="aba-estante" aria-label="abrir a estante">
+    <span class="lombada"></span>
+  </button>
+
+  <!-- Ferramentas: emergem ao tocar a água, recuam após inatividade.
+       Sem cápsula branca — as cores "descansam na superfície". -->
+  <div id="ferramentas" aria-label="ferramentas">
+    <div id="paleta"><!-- gotas-cor montadas pelo main.js --></div>
+    <div class="acoes">
+      <button id="lavar">lavar</button>
+      <button id="guardar">guardar</button>
+    </div>
+  </div>
 
   <!-- Editor de cor de um swatch (abre com long-press). O <input
        type="color"> nativo é o seletor: zero dependências. -->
@@ -36,17 +48,36 @@
     <button id="restaurar-cor" hidden>restaurar padrão</button>
   </div>
 
-  <!-- Mensagem do fim do ritual de entrada. -->
-  <p id="aviso" hidden>este é o seu lugar.</p>
-
-  <!-- Selo da fundação: miniatura da primeira pintura, que veste o site. -->
-  <button id="selo" hidden aria-label="a sua fundação">
-    <img id="selo-img" alt="">
-  </button>
-  <div id="popover-selo" hidden>
-    <button id="refazer-ritual">refazer o ritual</button>
-    <button id="fechar-selo">fechar</button>
+  <!-- A sequência de guardar desenha aqui: o pergaminho (imagem da obra
+       capturada) e o selo hanko. Ambos preenchidos/animados pelo main.js. -->
+  <div id="cena-guardar" hidden aria-hidden="true">
+    <div id="pergaminho"><img id="pergaminho-img" alt=""></div>
+    <div id="hanko">印</div>
   </div>
+
+  <!-- Mensagem cerimonial do fim do ritual de entrada. -->
+  <p id="aviso" hidden>esta sala é sua.</p>
+
+  <!-- Estante (tokonoma): expõe UMA obra por vez. Conteúdo montado pelo
+       main.js a partir de estante.v1. -->
+  <section id="estante" hidden aria-label="estante">
+    <button id="fechar-estante" aria-label="fechar a estante">✕</button>
+    <button class="navegar anterior" aria-label="obra anterior">‹</button>
+    <figure id="obra-foco">
+      <div id="moldura"><img id="obra-img" alt=""></div>
+      <figcaption>
+        <span id="obra-nome"></span>
+        <span id="obra-meta"></span>
+      </figcaption>
+      <div id="acoes-obra">
+        <button id="renomear-obra">renomear</button>
+        <button id="exportar-obra">exportar</button>
+        <button id="apagar-obra">apagar</button>
+      </div>
+    </figure>
+    <button class="navegar proxima" aria-label="próxima obra">›</button>
+    <p id="estante-vazia" hidden>a estante ainda está vazia.</p>
+  </section>
 
   <script type="module" src="js/main.js"></script>
 </body>

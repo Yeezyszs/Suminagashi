@@ -1,13 +1,20 @@
-/* styles.css — UI mínima e quieta: o canvas é o protagonista. */
+/* styles.css — o tokonoma. UI quase invisível; a água é tudo.
+ *
+ * Princípio: gaste a ousadia num lugar só (a água viva + a sequência de
+ * guardar). Todo o resto fica quieto, disciplinado, monocromático. A única
+ * cor de acento do site inteiro é o vermelhão (--shu), e ele aparece UMA
+ * vez: no selo hanko ao guardar. */
 
 :root {
-  /* Tokens de tema. Os padrões são o neutro (washi); após o ritual de
-     entrada, o main.js os sobrescreve com as cores extraídas da primeira
-     pintura do usuário — o site se veste da obra. */
-  --papel: #EFE9DC; /* fundo do site (a "--cor-fundo" do tema) */
-  --tinta: #1C1C1C; /* acento/texto da UI (a "--cor-acento" do tema) */
-  /* Duração da troca de tema; o ritual define conforme a calma do gesto. */
-  --duracao-tema: 0ms;
+  /* Tokens de design (fixos — a cor protagonista é sempre a água). */
+  --washi: #efe9dc;       /* superfície de água/papel */
+  --washi-fundo: #e2dbca; /* o "ar" atrás: parede da sala, fundo da estante */
+  --sumi: #1c1c1c;        /* tinta e texto primário */
+  --sumi-suave: #6b655b;  /* texto secundário, rótulos, metadados */
+  --shu: #b5402e;         /* vermelhão — SÓ no selo hanko ao guardar */
+
+  /* Durações da coreografia (chutes iniciais; calibrar no tato). */
+  --emergir: 250ms;
 }
 
 * {
@@ -20,11 +27,18 @@ html,
 body {
   height: 100%;
   overflow: hidden;
-  background: var(--papel);
-  /* Serifa de sistema com cara de mincho para o título; nada de webfont. */
-  font-family: "Hiragino Mincho ProN", "Yu Mincho", Georgia, serif;
-  color: var(--tinta);
-  transition: background var(--duracao-tema) ease, color var(--duracao-tema) ease;
+  background: var(--washi-fundo);
+  /* Mincho de sistema para o display; nada de webfont. */
+  font-family: "Hiragino Mincho ProN", "Yu Mincho", "Songti SC", Georgia, serif;
+  color: var(--sumi);
+}
+
+/* Rótulos, metadados e texto latino: utilitário, pequeno, discreto. */
+button,
+figcaption,
+#convite,
+#editor-cor {
+  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
 }
 
 /* --------------------------------------------------------------- atmosfera */
@@ -58,140 +72,197 @@ body {
   cursor: crosshair;
 }
 
-/* ------------------------------------------------------------------ título */
+/* --------------------------------------------------------- título vertical */
 
+/* 墨流し na vertical, à moda das inscrições dos kakemono. Discretíssimo. */
 #titulo {
   position: fixed;
-  top: 1.25rem;
-  left: 1.5rem;
-  font-size: 1.05rem;
+  top: 1.6rem;
+  right: 1.6rem;
+  writing-mode: vertical-rl;
+  font-size: 1.15rem;
   font-weight: normal;
-  letter-spacing: 0.08em;
-  opacity: 0.55;
-  pointer-events: none; /* nunca atrapalha um gesto que passe por cima */
+  letter-spacing: 0.42em;
+  color: var(--sumi-suave);
+  opacity: 0.5;
+  pointer-events: none;
   user-select: none;
+  z-index: 20;
 }
 
-#titulo span {
-  font-size: 0.7rem;
-  letter-spacing: 0.25em;
-  opacity: 0.8;
-  margin-left: 0.4em;
-}
+/* ------------------------------------------------------------- convite/dica */
 
-/* ------------------------------------------------------------- dica efêmera */
-
-#dica {
+#convite {
   position: fixed;
   left: 50%;
   top: 42%;
   transform: translateX(-50%);
-  font-size: 0.85rem;
-  letter-spacing: 0.12em;
-  opacity: 0.45;
+  max-width: 80vw;
+  text-align: center;
+  font-size: 0.9rem;
+  letter-spacing: 0.14em;
+  color: var(--sumi-suave);
+  opacity: 0.6;
   pointer-events: none;
   user-select: none;
-  text-align: center;
   transition: opacity 0.8s ease;
 }
 
-#dica.escondida {
+#convite.escondida {
   opacity: 0;
 }
 
-/* -------------------------------------------------------- barra de ferramentas */
+/* ----------------------------------------------------------- aba da estante */
 
-#barra {
+/* A "lombada" de um pergaminho espiando na margem direita. Sutil, mas
+   descobrível: respira de leve para sinalizar que é interativa. */
+#aba-estante {
   position: fixed;
-  bottom: 1.25rem;
-  left: 50%;
-  transform: translateX(-50%);
+  top: 50%;
+  right: 0;
+  transform: translateY(-50%);
+  z-index: 25;
+  width: 1.5rem;
+  height: 5.5rem;
+  border: none;
+  border-radius: 0.5rem 0 0 0.5rem;
+  background: color-mix(in srgb, var(--washi-fundo) 80%, var(--sumi) 6%);
+  box-shadow: -2px 0 10px rgba(28, 28, 28, 0.1);
+  cursor: pointer;
   display: flex;
   align-items: center;
-  gap: 0.9rem;
-  padding: 0.6rem 1rem;
+  justify-content: center;
+  animation: respira-aba 4.5s ease-in-out infinite;
+}
+
+#aba-estante .lombada {
+  width: 2px;
+  height: 60%;
+  border-radius: 1px;
+  background: var(--sumi-suave);
+  opacity: 0.4;
+}
+
+@keyframes respira-aba {
+  0%, 100% { transform: translateY(-50%) translateX(0); }
+  50% { transform: translateY(-50%) translateX(-3px); }
+}
+
+/* ------------------------------------------------------------- ferramentas */
+
+/* Emergem ao pintar, recuam no ocioso. Sem cápsula branca: as gotas
+   descansam na superfície, com só um respiro translúcido por trás para
+   legibilidade sobre água clara. */
+#ferramentas {
+  position: fixed;
+  left: 50%;
+  bottom: 1.4rem;
+  transform: translateX(-50%) translateY(1.5rem);
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  gap: 1.4rem;
+  padding: 0.5rem 1rem;
   border-radius: 999px;
-  /* Translúcida sobre a obra, seguindo o tema, com leve blur. */
-  background: rgba(239, 233, 220, 0.65); /* reserva p/ navegador antigo */
-  background: color-mix(in srgb, var(--papel) 65%, transparent);
-  backdrop-filter: blur(8px);
-  -webkit-backdrop-filter: blur(8px);
-  box-shadow: 0 2px 14px rgba(28, 28, 28, 0.12);
-  transition: background var(--duracao-tema) ease, opacity 3s ease;
+  background: radial-gradient(
+    ellipse at center,
+    color-mix(in srgb, var(--washi) 38%, transparent),
+    transparent 75%
+  );
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--emergir) ease, transform var(--emergir) ease;
+}
+
+/* No estado pintando, as ferramentas estão visíveis e clicáveis. */
+body.pintando #ferramentas {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translateX(-50%) translateY(0);
 }
 
 #paleta {
   display: flex;
-  gap: 0.65rem;
-  /* Com 11 swatches a barra pode não caber no celular: rola na horizontal.
+  gap: 0.6rem;
+  /* Com 11 gotas pode não caber no celular: rola na horizontal.
      pan-x SÓ aqui — o canvas continua touch-action: none. */
   overflow-x: auto;
   touch-action: pan-x;
-  max-width: min(56vw, 24rem);
-  padding: 4px; /* respiro para os anéis de seleção não serem cortados */
-  scrollbar-width: none; /* a rolagem existe, a barra visual não */
+  max-width: min(62vw, 26rem);
+  padding: 4px;
+  scrollbar-width: none;
 }
 
 #paleta::-webkit-scrollbar {
   display: none;
 }
 
+/* Cada cor é uma gota: círculo simples, sem moldura pesada. */
 .cor {
-  width: 1.9rem;
-  height: 1.9rem;
-  flex-shrink: 0; /* swatches não se espremem: a barra rola */
+  width: 1.75rem;
+  height: 1.75rem;
+  flex-shrink: 0;
   border-radius: 50%;
-  border: 1px solid rgba(28, 28, 28, 0.25);
+  border: none;
   background: var(--cor);
+  box-shadow: 0 1px 3px rgba(28, 28, 28, 0.25),
+    inset 0 1px 1px rgba(255, 255, 255, 0.25);
   cursor: pointer;
-  transition: transform 0.15s ease, box-shadow 0.15s ease;
+  transition: transform 0.15s ease;
 }
 
 .cor.ativa {
-  /* Anel discreto em volta do swatch selecionado. */
-  box-shadow: 0 0 0 2px var(--papel), 0 0 0 3.5px var(--tinta);
+  transform: scale(1.18);
+  box-shadow: 0 0 0 2px var(--washi), 0 0 0 3px var(--sumi-suave),
+    0 1px 3px rgba(28, 28, 28, 0.25);
 }
 
-.cor.personalizada {
-  /* Anel fino interno: marca de cor trocada pelo usuário. */
-  box-shadow: inset 0 0 0 2px var(--papel);
+.cor.personalizada::after {
+  /* Marca discreta de cor trocada pelo usuário. */
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  box-shadow: inset 0 0 0 2px rgba(255, 255, 255, 0.55);
 }
 
-.cor.personalizada.ativa {
-  box-shadow: inset 0 0 0 2px var(--papel), 0 0 0 2px var(--papel),
-    0 0 0 3.5px var(--tinta);
+.cor.agua {
+  border: 1px solid color-mix(in srgb, var(--sumi) 22%, transparent);
 }
 
 .cor:hover {
   transform: scale(1.12);
 }
 
-#divisor {
-  width: 1px;
-  height: 1.5rem;
-  background: rgba(28, 28, 28, 0.2);
+.acoes {
+  display: flex;
+  align-items: center;
+  gap: 0.9rem;
 }
 
-#lavar {
+#ferramentas button {
   border: none;
   background: none;
-  font-family: inherit;
-  font-size: 0.85rem;
-  letter-spacing: 0.15em;
-  color: var(--tinta);
-  opacity: 0.7;
+  font-size: 0.8rem;
+  letter-spacing: 0.14em;
+  color: var(--sumi);
+  opacity: 0.72;
   cursor: pointer;
-  padding: 0.25rem 0.4rem;
+  padding: 0.2rem 0.3rem;
 }
 
-#lavar:hover {
+#ferramentas button:hover {
   opacity: 1;
+}
+
+/* "guardar" é a ação-assinatura: um traço a mais de presença. */
+#guardar {
+  font-weight: 500;
+  letter-spacing: 0.2em !important;
 }
 
 /* ------------------------------------------------------------ editor de cor */
 
-/* display:flex abaixo venceria o [hidden] nativo — esta regra garante que
-   "escondido" continue significando escondido. */
 #editor-cor[hidden],
 #restaurar-cor[hidden] {
   display: none;
@@ -199,18 +270,18 @@ body {
 
 #editor-cor {
   position: fixed;
-  z-index: 10;
+  z-index: 40;
   display: flex;
   flex-direction: column;
   gap: 0.5rem;
   padding: 0.7rem 0.9rem;
   border-radius: 0.8rem;
-  background: rgba(239, 233, 220, 0.92);
+  background: color-mix(in srgb, var(--washi) 92%, transparent);
   backdrop-filter: blur(8px);
   -webkit-backdrop-filter: blur(8px);
   box-shadow: 0 4px 18px rgba(28, 28, 28, 0.18);
   font-size: 0.8rem;
-  letter-spacing: 0.08em;
+  letter-spacing: 0.06em;
 }
 
 #editor-cor .trocar {
@@ -223,7 +294,7 @@ body {
 #entrada-cor {
   width: 2.2rem;
   height: 1.6rem;
-  border: 1px solid rgba(28, 28, 28, 0.25);
+  border: 1px solid color-mix(in srgb, var(--sumi) 25%, transparent);
   border-radius: 0.4rem;
   padding: 0;
   background: none;
@@ -233,46 +304,88 @@ body {
 #restaurar-cor {
   border: none;
   background: none;
-  font-family: inherit;
   font-size: 0.75rem;
-  letter-spacing: 0.08em;
-  color: var(--tinta);
-  opacity: 0.65;
+  color: var(--sumi-suave);
   cursor: pointer;
   text-align: left;
   padding: 0;
 }
 
-#restaurar-cor:hover {
-  opacity: 1;
+/* ------------------------------------------------------ sequência de guardar */
+
+#cena-guardar[hidden] {
+  display: none;
 }
 
-/* ----------------------------------------------------------------- ritual */
-
-/* Assentamento: a UI esmaece devagar enquanto a água se aquieta — o único
-   sinal de que algo está acontecendo (sem countdown). Cancelado, volta. */
-body.assentando #barra,
-body.assentando #titulo {
-  opacity: 0.25;
+#cena-guardar {
+  position: fixed;
+  inset: 0;
+  z-index: 45;
+  pointer-events: none;
 }
 
-#titulo,
-#dica {
-  transition: color var(--duracao-tema) ease, opacity 0.8s ease;
+/* O pergaminho: a imagem da obra capturada, que se enrola de baixo p/ cima
+   e desliza até a aba. O enrolar é um clip-path animado por JS. */
+#pergaminho {
+  position: absolute;
+  inset: 0;
+  transform-origin: top right;
+  will-change: transform, clip-path;
 }
 
-body.assentando #titulo {
-  transition: color var(--duracao-tema) ease, opacity 3s ease;
+#pergaminho-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
 }
 
-/* "este é o seu lugar." */
+/* O selo hanko: quadrado vermelhão com o caractere 印. Único vermelho do
+   site. Aparece com um leve impacto (escala) e assenta. */
+#hanko {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 5rem;
+  height: 5rem;
+  transform: translate(-50%, -50%) scale(0);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--shu);
+  color: var(--washi);
+  border-radius: 0.5rem;
+  font-size: 2.6rem;
+  line-height: 1;
+  box-shadow: 0 6px 22px rgba(181, 64, 46, 0.4);
+  opacity: 0;
+}
+
+#hanko.bater {
+  animation: bate-selo 0.6s cubic-bezier(0.2, 1.4, 0.3, 1) forwards;
+}
+
+@keyframes bate-selo {
+  0% { transform: translate(-50%, -50%) scale(1.6); opacity: 0; }
+  35% { transform: translate(-50%, -50%) scale(0.92); opacity: 1; }
+  100% { transform: translate(-50%, -50%) scale(1); opacity: 1; }
+}
+
+/* --------------------------------------------------------------- aviso ritual */
+
+#aviso[hidden] {
+  display: none;
+}
+
 #aviso {
   position: fixed;
   left: 50%;
-  top: 42%;
+  top: 44%;
   transform: translateX(-50%);
-  font-size: 0.95rem;
-  letter-spacing: 0.18em;
+  z-index: 46;
+  font-size: 1rem;
+  letter-spacing: 0.2em;
+  color: var(--sumi);
   opacity: 0;
   pointer-events: none;
   user-select: none;
@@ -280,90 +393,188 @@ body.assentando #titulo {
 }
 
 #aviso.visivel {
-  opacity: 0.7;
+  opacity: 0.78;
 }
 
-/* Selo da fundação: a miniatura da primeira pintura, discreta no canto. */
-#selo {
-  position: fixed;
-  bottom: 1.25rem;
-  left: 1.25rem;
-  width: 2.6rem;
-  height: 2.6rem;
-  padding: 0;
-  border: 1px solid color-mix(in srgb, var(--tinta) 30%, transparent);
-  border-radius: 50%;
-  overflow: hidden;
-  cursor: pointer;
-  background: var(--papel);
-  opacity: 0.75;
-  transition: opacity 0.2s ease;
-}
+/* ----------------------------------------------------------------- estante */
 
-#selo:hover {
-  opacity: 1;
-}
-
-#selo img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  display: block;
-}
-
-#popover-selo {
-  position: fixed;
-  bottom: 4.4rem;
-  left: 1.25rem;
-  z-index: 10;
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 0.45rem;
-  padding: 0.7rem 0.9rem;
-  border-radius: 0.8rem;
-  background: color-mix(in srgb, var(--papel) 92%, transparent);
-  backdrop-filter: blur(8px);
-  -webkit-backdrop-filter: blur(8px);
-  box-shadow: 0 4px 18px rgba(28, 28, 28, 0.18);
-}
-
-#popover-selo[hidden] {
+#estante[hidden] {
   display: none;
 }
 
-#popover-selo button {
-  border: none;
-  background: none;
-  font-family: inherit;
-  font-size: 0.8rem;
-  letter-spacing: 0.08em;
-  color: var(--tinta);
-  opacity: 0.75;
-  cursor: pointer;
-  padding: 0.1rem 0;
+#estante {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  background: var(--washi-fundo);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  /* Surge num fade curto (o conteúdo é a obra; sem teatro de chrome). */
+  animation: surge-estante 0.4s ease;
 }
 
-#popover-selo button:hover {
+@keyframes surge-estante {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+#fechar-estante {
+  position: fixed;
+  top: 1.3rem;
+  right: 1.5rem;
+  border: none;
+  background: none;
+  font-size: 1.1rem;
+  color: var(--sumi-suave);
+  cursor: pointer;
+  opacity: 0.7;
+}
+
+#fechar-estante:hover {
   opacity: 1;
+}
+
+.navegar {
+  position: fixed;
+  top: 50%;
+  transform: translateY(-50%);
+  border: none;
+  background: none;
+  font-size: 2.2rem;
+  color: var(--sumi-suave);
+  opacity: 0.5;
+  cursor: pointer;
+  padding: 1rem;
+  transition: opacity 0.2s ease;
+}
+
+.navegar:hover {
+  opacity: 0.9;
+}
+
+.navegar.anterior {
+  left: 1rem;
+}
+
+.navegar.proxima {
+  right: 1rem;
+}
+
+/* A obra em foco: UMA peça, centralizada, muito vazio ao redor (o respiro
+   do tatami). Exibida como pergaminho desenrolado. */
+#obra-foco {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1.1rem;
+  max-width: min(70vw, 30rem);
+}
+
+#moldura {
+  /* Kakemono: estreito e vertical, com varetas sutis em cima/embaixo. */
+  padding: 0.5rem 0;
+  border-top: 3px solid color-mix(in srgb, var(--sumi) 18%, transparent);
+  border-bottom: 3px solid color-mix(in srgb, var(--sumi) 18%, transparent);
+  background: var(--washi);
+  box-shadow: 0 8px 30px rgba(28, 28, 28, 0.14);
+  max-height: 64vh;
+  transition: opacity 0.3s ease;
+}
+
+#obra-img {
+  display: block;
+  max-width: min(64vw, 26rem);
+  max-height: 60vh;
+  object-fit: contain;
+}
+
+#obra-foco figcaption {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.25rem;
+  text-align: center;
+}
+
+#obra-nome {
+  font-family: "Hiragino Mincho ProN", "Yu Mincho", Georgia, serif;
+  font-size: 1.05rem;
+  letter-spacing: 0.08em;
+  color: var(--sumi);
+}
+
+#obra-nome.editavel {
+  outline: 1px dashed var(--sumi-suave);
+  padding: 0.1rem 0.4rem;
+  border-radius: 0.3rem;
+}
+
+#obra-meta {
+  font-size: 0.78rem;
+  letter-spacing: 0.1em;
+  color: var(--sumi-suave);
+}
+
+/* A fundação ganha uma marca quieta — 元 ("origem") — nos metadados. */
+#obra-meta .origem {
+  margin-left: 0.5em;
+  opacity: 0.7;
+}
+
+#acoes-obra {
+  display: flex;
+  gap: 1.2rem;
+  margin-top: 0.3rem;
+}
+
+#acoes-obra button {
+  border: none;
+  background: none;
+  font-family: system-ui, sans-serif;
+  font-size: 0.76rem;
+  letter-spacing: 0.1em;
+  color: var(--sumi-suave);
+  cursor: pointer;
+  opacity: 0.8;
+}
+
+#acoes-obra button:hover {
+  opacity: 1;
+}
+
+#acoes-obra button:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+#estante-vazia[hidden] {
+  display: none;
+}
+
+#estante-vazia {
+  color: var(--sumi-suave);
+  letter-spacing: 0.12em;
 }
 
 /* --------------------------------------------------- prefers-reduced-motion */
 
 @media (prefers-reduced-motion: reduce) {
-  /* Sem animações decorativas: a dica some na hora, swatches não escalam,
-     tema e aviso trocam em corte seco. (O fade do "lavar" e o assentamento
-     longo também são desativados, no main.js.) */
-  #dica,
+  /* Sem animações decorativas: tudo em corte seco (o JS também encurta as
+     sequências longas — assentamento e guardar). */
+  #convite,
   .cor,
   #aviso,
-  body,
-  #barra,
-  #titulo {
+  #ferramentas,
+  #moldura,
+  #aba-estante,
+  #estante {
     transition: none;
+    animation: none;
   }
 
-  .cor:hover {
+  .cor:hover,
+  .cor.ativa {
     transform: none;
   }
 }
