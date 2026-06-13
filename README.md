@@ -89,21 +89,39 @@ do suminagashi clássico.
 Na barra: 10 tintas + água, e **segurar um swatch (~450ms)** abre um seletor
 para personalizá-lo (persiste no navegador).
 
-## O ritual de entrada
+## O tokonoma (a sala)
 
-Na primeira visita o site convida: *"pinte. o site vai se vestir de você."*
-Depois de alguns gestos e 10s de quietude, a água assenta e o site extrai da
-obra um **tema** — as duas cores dominantes viram o fundo e o acento da UI
-(com contraste legível garantido), e o *jeito* de pintar (cadência,
-velocidade, pausas) vira um escalar de **calma** que dita o ritmo da
-respiração da água e das transições. Tudo fica só no seu navegador
-(`localStorage`), com uma miniatura da pintura-fundação num canto — toque
-nela para refazer o ritual.
+O site não é "um canvas com uma barra de cores" — é um **tokonoma** (床の間),
+o nicho de exposição da casa japonesa: madeira, vazio que respira, UMA obra
+em foco. A UI quase desaparece e a água é tudo. Três estados:
 
-> A primeira versão deste projeto usava outra técnica — o marbling
-> geométrico de Aubrey Jaffer, com gotas como polígonos de borda nítida e
-> fórmulas fechadas. Ela vive no histórico do git, caso um dia exista um
-> "modo anéis nítidos".
+- **ocioso** — só a água viva respira em tela cheia; um título vertical num
+  canto e a "lombada" da estante espiando na margem. Nada mais.
+- **pintando** — ao tocar, as ferramentas (gotas-cor + guardar) emergem;
+  recuam sozinhas após alguns segundos parados.
+- **estante** — puxada pela aba lateral, expõe **uma obra por vez** como um
+  pergaminho (kakemono), com navegação horizontal entre as obras guardadas.
+
+**A luz da sala (atmosfera).** Uma camada de luz banha a tela inteira,
+combinando duas fontes (ver `luz.js`, funções puras):
+
+1. *o ciclo* — o relógio do dispositivo vira luz contínua, minuto a minuto:
+   luar frio de madrugada, meio-dia neutro, tarde dourada.
+2. *o tom da fundação* — a **primeira pintura** define a temperatura base da
+   sala. O relógio dá o movimento; a fundação dá o tom. Dois usuários às 18h
+   veem entardeceres diferentes porque fundaram salas diferentes.
+
+**Guardar** é o único momento "alto" do site (e o único vermelho): a água
+assenta, um **selo hanko** (印) carimba a obra, ela se **enrola em
+pergaminho** e é recolhida para a estante. Cada obra ganha um nome em PT-BR
+gerado da hora + temperatura (ex.: "Maré da Noite", "Âmbar das Três"),
+renomeável depois.
+
+**Ritual de entrada (primeira visita).** A sala nasce neutra e convida:
+*"pinte. esta sala vai nascer das suas cores."* Você pinta; após alguns
+gestos e ~10s de quietude a água assenta, a sala ganha alma (o tom da
+fundação) e a obra vira o primeiro pergaminho da estante. Tudo fica só no
+seu navegador (`localStorage`); nada sai dele.
 
 ## Estrutura
 
@@ -114,8 +132,9 @@ js/
   prng.js     # PRNG seedável (mulberry32) — determinismo desde o dia 1
   fluido.js   # motor: solver de Navier-Stokes em WebGL2 + shaders
   input.js    # pointer events → gestos (tap = gota, drag = estilete)
-  ritual.js   # extração de tema e calma (funções puras)
-  main.js     # orquestração, UI, loop de animação
+  luz.js      # atmosfera: ciclo do relógio + tom da fundação (puro)
+  estante.js  # nomes das obras + metadados (puro)
+  main.js     # orquestração, estados, guardar, estante, loop
 ```
 
 `fluido.js` conhece WebGL mas não conhece a página: recebe um canvas e

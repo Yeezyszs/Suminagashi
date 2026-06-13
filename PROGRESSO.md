@@ -3,18 +3,19 @@
 Registro do que já foi construído, em que pé está cada coisa e o que vem a
 seguir. Documento vivo: atualizar a cada marco.
 
-_Última atualização: 13/06/2026 — branch `main`_
+_Última atualização: 13/06/2026 (v3) — branch `main`_
 
 ---
 
 ## Onde estamos
 
-A **v1 (motor + modo livre)** e a **v2 (cores + ritual de entrada)** estão
+A **v1 (motor)**, a **v2 (cores + pigmento)** e a **v3 (o tokonoma)** estão
 funcionais. O motor de marbling geométrico do brief original foi substituído
 por uma **simulação de fluido real em WebGL2** (a pedido, após o vídeo de
 referência), com mistura de pigmento físico (Beer-Lambert) e paredes que
-refletem a tinta. O ritual de entrada extrai um tema da primeira pintura e
-veste o site com ele.
+refletem a tinta. A experiência foi redesenhada como um **tokonoma**: a UI quase
+desaparece, a água é tudo, e há um sistema de luz (atmosfera) e uma estante
+de obras guardadas com o gesto cerimonial de "guardar".
 
 Restrições do brief mantidas: **zero dependências, zero build, zero
 framework**. Abre com qualquer servidor estático. Comentários em PT-BR com
@@ -40,6 +41,9 @@ tom educacional. UI mínima e em português.
 | 7 | `b91b499` | **Deploy** | Site movido para `docs/`; GitHub Pages funcionando nos dois modos. |
 | 8 | `df3e426` | **v2 cores** | Mistura subtrativa Beer-Lambert (densidade óptica), 10 tintas + água que dilui, cor personalizada por long-press. |
 | 9 | `205cdfb` | **v2 ritual** | Ritual de entrada: a primeira pintura define o tema do site (cores + calma), persistido em localStorage com selo da fundação. |
+| 10 | `55f5e22` | **Textura limpa** | Tinta assentada cremosa (dose de nitidez MacCormack + vorticidade/ondas mais calmas). |
+| 11 | (luz) | **v3 luz** | Sistema de atmosfera de duas camadas: ciclo do relógio + tom da fundação. |
+| 12 | (tokonoma) | **v3 tokonoma** | Redesenho completo: estados ocioso/pintando/estante, sequência de guardar (hanko + pergaminho), estante de obras. |
 
 ---
 
@@ -48,14 +52,15 @@ tom educacional. UI mínima e em português.
 ```
 suminagashi/
   docs/             # o site publicado pelo GitHub Pages (sem build)
-    index.html      # tela cheia: canvas + título + dica + barra de cores
-    styles.css      # UI quieta, touch-action: none, prefers-reduced-motion
+    index.html      # canvas + atmosfera + título vertical + estante
+    styles.css      # tokonoma: UI quase invisível, tokens de design
     js/
       prng.js       # PRNG seedável (mulberry32) — determinismo desde o dia 1
       fluido.js     # MOTOR: solver de Navier-Stokes em WebGL2 + shaders GLSL
       input.js      # Pointer Events → gestos (tap = gota, drag = estilete)
-      ritual.js     # extração de tema e calma — funções puras
-      main.js       # orquestração, UI, ritual, loop de animação
+      luz.js        # atmosfera: ciclo do relógio + tom da fundação (puro)
+      estante.js    # nomes das obras + metadados (puro)
+      main.js       # orquestração, estados, guardar, estante, loop
   .github/workflows/pages.yml  # deploy automático a cada push na main
   README.md         # como rodar + explicação da física
   PROGRESSO.md      # este arquivo
@@ -93,8 +98,8 @@ quadro:
 
 **Cores:** a textura de tinta guarda **densidade óptica** (Beer-Lambert):
 `cor = papel · exp(−D)`. Pingar soma densidade; "água" subtrai (dilui).
-Azul + amarelo → verde, como pigmento de verdade. O papel é um uniform —
-o tema do ritual o tinge sem tocar a obra.
+Azul + amarelo → verde, como pigmento de verdade. A atmosfera (luz da
+sala) é um overlay DOM por cima de tudo, derivada da hora + tom da fundação.
 
 Gestos viram *splats* gaussianos: a **gota** pinta corante + empurra a água
 em anel (abre espaço); a **água** (cor do papel) só empurra — anéis
@@ -141,6 +146,22 @@ topo de `fluido.js` (dissipação, vorticidade, força da gota, ondas...).
 - [x] Casos de borda: reduced-motion (cortes), obra vazia (sem tema),
       localStorage indisponível (vale só na sessão), lavar não conta gesto
 
+### v3 — o tokonoma (UI/UX)
+
+- [x] Estados ocioso/pintando/estante com transições suaves
+- [x] Título vertical (writing-mode) + aba da estante respirando na margem
+- [x] Ferramentas emergem ao tocar, recuam após ~4s; cores como gotas (sem
+      cápsula branca)
+- [x] Atmosfera de 2 camadas: ciclo do relógio (minuto a minuto) modulado
+      pelo tom da fundação; overlay DOM barato; ?hora= para testar
+- [x] Sequência de guardar: assentar → selo hanko (印, único vermelho) →
+      enrolar em pergaminho → recolher para a estante → água limpa
+- [x] Nome gerado em PT-BR (água/luz + hora), renomeável na estante
+- [x] Estante-tokonoma: uma obra por vez, navegação (setas/teclado/swipe),
+      metadados, fundação marcada com 元 e impossível de apagar
+- [x] Persistência: fundacao.v1 (tom da luz) + estante.v1 (obras)
+- [x] reduced-motion colapsa todas as sequências em cortes
+
 ---
 
 ## Pendências / riscos conhecidos
@@ -171,10 +192,12 @@ sugerida:
    **não é garantido** (GPUs diferem em ponto flutuante). Caminho viável:
    gravar a *sequência de gestos*, não confiar na reprodução numérica
    idêntica. O PRNG e o registro de comandos já estão preparados.
-3. **Modo som** (Web Audio).
+1. **Export PNG/alta resolução** — a ação "exportar" na estante é um
+   placeholder; falta renderizar a obra num framebuffer grande.
+2. **Modo som** (Web Audio).
 
-(O ritual de entrada e a extração de paleta/temperamento foram entregues
-na v2.)
+(Ritual de entrada, extração de paleta/temperamento e o tokonoma já
+entregues.)
 
 ---
 
