@@ -32,6 +32,8 @@
   <!-- Ferramentas: emergem ao tocar a água, recuam após inatividade.
        Sem cápsula branca — as cores "descansam na superfície". -->
   <div id="ferramentas" aria-label="ferramentas">
+    <!-- alternador de modo água ↔ cosmos (símbolo discreto) -->
+    <button id="alternar-modo" aria-label="alternar modo"></button>
     <div id="paleta"><!-- gotas-cor montadas pelo main.js --></div>
     <div class="acoes">
       <button id="lavar">lavar</button>
@@ -67,6 +69,7 @@
       <div id="moldura"><img id="obra-img" alt=""></div>
       <figcaption>
         <span id="obra-nome"></span>
+        <p id="obra-haiku" hidden></p>
         <span id="obra-meta"></span>
       </figcaption>
       <div id="acoes-obra">

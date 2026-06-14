@@ -17,32 +17,29 @@ import {
   comporAtmosfera,
   corDaAtmosfera,
 } from './luz.js';
-import { gerarNome, horaFormatada } from './estante.js';
+import { gerarNome, gerarHaiku, sementeDaObra, horaFormatada } from './estante.js';
+import { MODOS, hexParaRgb } from './modos.js';
 
 // ---------------------------------------------------------------------------
 // Constantes (chutes iniciais agrupados; calibrar no tato)
 // ---------------------------------------------------------------------------
 
-const COR_PAPEL = '#EFE9DC'; // washi (a superfície da água)
-
-// 10 tintas + água. Escolhidas para misturar bem em densidade óptica
-// (Beer-Lambert): amarelo-ouro + azul-céu → verde, etc.
-const PALETA = [
-  { nome: 'sumi', cor: '#1C1C1C' },
-  { nome: 'índigo', cor: '#1F3A5F' },
-  { nome: 'vermelhão', cor: '#C8401F' },
-  { nome: 'verde-pinho', cor: '#3E5C43' },
-  { nome: 'amarelo-ouro', cor: '#D4A937' },
-  { nome: 'azul-céu', cor: '#7BA7C7' },
-  { nome: 'rosa', cor: '#D08CA0' },
-  { nome: 'verde-claro', cor: '#9CB97E' },
-  { nome: 'ameixa', cor: '#7A5577' },
-  { nome: 'terracota', cor: '#C07A50' },
-];
-
 const CHAVE_PALETA = 'paleta.v1';
 const CHAVE_FUNDACAO = 'fundacao.v1'; // viés de tom (camada 2 da luz)
 const CHAVE_ESTANTE = 'estante.v1'; // array de obras guardadas
+const CHAVE_MODO = 'modoAtual.v1'; // 'agua' | 'cosmos'
+
+// Estrelas (modo cosmos)
+const TAP_ESTRELA_MS = 260; // tap mais curto que isto = estrela; segurar = nebulosa
+const ESTRELA_TAM = [0.004, 0.013]; // tamanho (fração da altura) — via PRNG
+const ESTRELA_BRILHO = [0.7, 1.3]; // brilho — via PRNG
+
+// Cosmos: a deriva é mais lenta que a da água (o lento girar do espaço).
+const RITMO_COSMOS = 0.5;
+// Brilho de emissão do cosmos pelo ciclo de luz: de madrugada brilha de
+// verdade contra o escuro; ao meio-dia fica mais lavado/sutil.
+const BRILHO_NOITE = 1.15;
+const BRILHO_DIA = 0.55;
 
 const DURACAO_LONGPRESS = 450; // long-press no swatch → editor de cor
 
@@ -162,16 +159,15 @@ async function idbApagar(chave) {
 // Montagem
 // ---------------------------------------------------------------------------
 
-/** '#RRGGBB' → [r, g, b] em [0, 1] (formato que os shaders esperam). */
-function hexParaRgb(hex) {
-  return [
-    parseInt(hex.slice(1, 3), 16) / 255,
-    parseInt(hex.slice(3, 5), 16) / 255,
-    parseInt(hex.slice(5, 7), 16) / 255,
-  ];
-}
+// (hexParaRgb vem de modos.js — é compartilhado com a definição dos modos.)
 
 const rng = mulberry32(Date.now());
+
+// Modo atual (água | cosmos). O objeto de configuração concentra TUDO que
+// difere entre os modos (ver modos.js); o resto do código fala com `modo`.
+let idModo = lerArmazenado(CHAVE_MODO) || 'agua';
+if (!MODOS[idModo]) idModo = 'agua';
+let modo = MODOS[idModo];
 
 /**
  * Resolução da grade de tinta conforme o aparelho. É o que define o
@@ -193,7 +189,8 @@ function escolherResTinta() {
 const canvas = document.getElementById('agua');
 let fluido;
 try {
-  fluido = criarFluido(canvas, hexParaRgb(COR_PAPEL), { resTinta: escolherResTinta() });
+  fluido = criarFluido(canvas, hexParaRgb(modo.fundo), { resTinta: escolherResTinta() });
+  fluido.definirModo(modo.render);
 } catch (e) {
   document.getElementById('convite').textContent =
     'este navegador não suporta a simulação de água (WebGL2)';
@@ -204,12 +201,17 @@ const reduzMovimento = window.matchMedia('(prefers-reduced-motion: reduce)');
 const corpo = document.body;
 const dorme = (ms) => new Promise((r) => setTimeout(r, ms));
 
-// Cores personalizadas sobrepostas à paleta padrão.
+// Cores personalizadas (long-press), por modo+índice — as paletas diferem.
 const coresPersonalizadas = lerArmazenado(CHAVE_PALETA) || {};
-const corDoSwatch = (i) => coresPersonalizadas[i] || PALETA[i].cor;
+const chaveCor = (i) => `${idModo}:${i}`;
+const corDoSwatch = (i) => coresPersonalizadas[chaveCor(i)] || modo.paleta[i].cor;
 
-// Seleção atual: índice da PALETA, ou 'agua'.
+// Seleção atual: índice da paleta do modo, ou 'especial' (água / vazio).
 let selecao = 0;
+
+// Estrelas do cosmos (não são fluido): lista viva, desenhada por cima.
+// Cada uma: { xn, yn (0..1), tam, cor:[r,g,b], brilho, fase }.
+let estrelas = [];
 
 // --- estado geral -----------------------------------------------------------
 
@@ -251,9 +253,18 @@ function agoraParaLuz() {
 
 function atualizarAtmosfera() {
   const atm = comporAtmosfera(cicloDeLuz(agoraParaLuz()), tomFundacao);
-  const { centro, borda } = corDaAtmosfera(atm);
+  // No cosmos o overlay é mais leve (o vazio já é escuro).
+  const escalaOverlay = idModo === 'cosmos' ? 0.4 : 1;
+  const { centro, borda } = corDaAtmosfera(atm, escalaOverlay);
   overlayAtmosfera.style.setProperty('--atm-centro', centro);
   overlayAtmosfera.style.setProperty('--atm-borda', borda);
+
+  // Cosmos: o ciclo do relógio se inverte em significado — de madrugada o
+  // gás brilha de verdade contra o escuro; ao meio-dia fica mais lavado.
+  if (idModo === 'cosmos') {
+    const t = Math.max(0, Math.min(1, (1.05 - atm.luminosidade) / (1.05 - 0.42)));
+    fluido.definirBrilho(BRILHO_DIA + (BRILHO_NOITE - BRILHO_DIA) * t);
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -296,11 +307,18 @@ canvas.addEventListener('pointerdown', () => {
 // ---------------------------------------------------------------------------
 
 const input = instalarInput(canvas, {
-  aoPingar(x, y) {
+  aoPingar(x, y, duracao) {
     if (estanteAberta || guardando) return;
-    const raio = entre(rng, RAIO_MINIMO, RAIO_MAXIMO);
-    if (selecao === 'agua') fluido.pingarAgua(x, y, raio);
-    else fluido.pingar(x, y, raio, hexParaRgb(corDoSwatch(selecao)));
+    // No cosmos, um tap RÁPIDO acende uma estrela (ponto de luz fixo);
+    // segurar um instante deposita uma nebulosa (gás). Na água, tap é
+    // sempre gota. Reusa o mesmo limiar tap-vs-drag; só o tap se desdobra.
+    if (idModo === 'cosmos' && selecao !== 'especial' && duracao < TAP_ESTRELA_MS) {
+      acenderEstrela(x, y, corDoSwatch(selecao));
+    } else {
+      const raio = entre(rng, RAIO_MINIMO, RAIO_MAXIMO);
+      if (selecao === 'especial') fluido.pingarAgua(x, y, raio); // água dilui / vazio apaga
+      else fluido.pingar(x, y, raio, modo.densidade(hexParaRgb(corDoSwatch(selecao))));
+    }
     gestosNoRitual++;
     marcarInteracao();
   },
@@ -360,14 +378,36 @@ function quadro(agora) {
   }
   quadroAnterior = agora;
 
-  fluido.exibir();
+  // Estrelas cintilam (cosmos), exceto sob prefers-reduced-motion.
+  fluido.exibir(agora / 1000, !reduzMovimento.matches);
   requestAnimationFrame(quadro);
+}
+
+/** Acende uma estrela fixa (cosmos): ponto de luz que NÃO advecta — o gás
+ *  flui por trás. Tamanho/brilho variam via PRNG seedável. */
+function acenderEstrela(x, y, corHex) {
+  estrelas.push({
+    xn: x / canvas.clientWidth,
+    yn: y / canvas.clientHeight,
+    tam: entre(rng, ESTRELA_TAM[0], ESTRELA_TAM[1]),
+    cor: hexParaRgb(corHex),
+    brilho: entre(rng, ESTRELA_BRILHO[0], ESTRELA_BRILHO[1]),
+    fase: rng() * Math.PI * 2,
+  });
+  fluido.definirEstrelas(estrelas);
+}
+
+function limparEstrelas() {
+  if (estrelas.length === 0) return;
+  estrelas = [];
+  fluido.definirEstrelas(estrelas);
 }
 
 function lavar() {
   if (inicioLavagem !== null) return;
   if (reduzMovimento.matches) fluido.desbotar(1);
   else inicioLavagem = performance.now();
+  limparEstrelas();
   // Lavar não conta como guardar nem zera a contagem do ritual; só rearma
   // o relógio de inatividade (senão a bacia recém-lavada assentaria vazia).
   ultimaInteracao = performance.now();
@@ -405,11 +445,11 @@ async function guardar(ehFundacao = false) {
   await dorme(reduz ? 0 : GUARDAR_ASSENTAR);
 
   // Captura a obra já assentada na resolução NATIVA da grade de tinta —
-  // todo o detalhe que a simulação produziu (sem a atmosfera, que é só
-  // overlay). É essa imagem que alimenta a vitrine e a exportação.
-  const captura = fluido.capturar(larguraCaptura());
+  // todo o detalhe que a simulação produziu, no render do modo atual
+  // (água ou cosmos), com as estrelas embutidas e SEM cintilar (still).
+  const captura = fluido.capturar(larguraCaptura(), performance.now() / 1000, false);
   const dataUrl = capturaParaDataUrl(captura);
-  const tom = extrairTomFundacao(captura.pixels, captura.w, captura.h, hexParaRgb(COR_PAPEL));
+  const tom = extrairTomFundacao(captura.pixels, captura.w, captura.h, hexParaRgb(modo.fundo));
 
   // 2. Selar: o hanko desce e carimba.
   baterHanko();
@@ -418,11 +458,12 @@ async function guardar(ehFundacao = false) {
   // 3 + 4. Enrolar em pergaminho e recolher até a aba (só com animação).
   if (!reduz) await enrolarPergaminho(dataUrl);
 
-  // Registra a obra na estante.
+  // Registra a obra na estante (com o modo e o batismo).
   await registrarObra(dataUrl, tom.calidez, ehFundacao);
 
-  // 5. Água limpa, cena escondida, volta ao ocioso.
+  // 5. Limpa, cena escondida, volta ao ocioso.
   fluido.desbotar(1);
+  limparEstrelas();
   esconderCenaGuardar();
   ondulacaoAlvo = 1;
   guardando = false;
@@ -500,10 +541,18 @@ function larguraCaptura() {
  */
 async function registrarObra(dataUrl, calidez, ehFundacao) {
   const id = 'o' + Date.now().toString(36);
+  const criadaEm = Date.now();
+  // Batismo LOCAL e DETERMINÍSTICO: o nome (e o haiku) vêm de um hash da
+  // própria obra (modo + tom + hora + nº de estrelas), pelo léxico do
+  // modo. Mesma obra → mesmo nome. Nada de rede/IA.
+  const semente = sementeDaObra({ modo: idModo, calidez, timestamp: criadaEm, estrelas: estrelas.length });
+  const data = new Date(criadaEm);
   const obra = {
     id,
-    nome: gerarNome(new Date(), calidez, rng),
-    criadaEm: Date.now(),
+    modo: idModo, // 'agua' | 'cosmos'
+    nome: gerarNome(modo, data, calidez, semente),
+    haiku: gerarHaiku(modo, data, calidez, semente),
+    criadaEm,
     ehFundacao,
   };
   try {
@@ -566,7 +615,7 @@ function esconderConvite() {
  */
 async function concluirRitual() {
   const captura = fluido.capturar(64);
-  const tom = extrairTomFundacao(captura.pixels, captura.w, captura.h, hexParaRgb(COR_PAPEL));
+  const tom = extrairTomFundacao(captura.pixels, captura.w, captura.h, hexParaRgb(modo.fundo));
   if (tom.forca < 0.05) {
     emRitual = false;
     ondulacaoAlvo = 1;
@@ -604,14 +653,14 @@ function montarPaleta() {
   const barra = document.getElementById('paleta');
   barra.textContent = '';
 
-  PALETA.forEach((tinta, indice) => {
+  modo.paleta.forEach((tinta, indice) => {
     const botao = document.createElement('button');
     botao.className = 'cor';
     botao.dataset.indice = indice;
     botao.style.setProperty('--cor', corDoSwatch(indice));
-    botao.setAttribute('aria-label', `tinta ${tinta.nome}`);
+    botao.setAttribute('aria-label', `${tinta.nome}`);
     botao.title = tinta.nome;
-    if (coresPersonalizadas[indice]) botao.classList.add('personalizada');
+    if (coresPersonalizadas[chaveCor(indice)]) botao.classList.add('personalizada');
     if (selecao === indice) botao.classList.add('ativa');
 
     // Long-press (tempo, ~450ms) abre o editor; toque curto seleciona.
@@ -635,21 +684,22 @@ function montarPaleta() {
     barra.appendChild(botao);
   });
 
-  // Água: gota especial — não personalizável (é o próprio papel).
-  const agua = document.createElement('button');
-  agua.className = 'cor agua';
-  agua.style.setProperty('--cor', COR_PAPEL);
-  agua.setAttribute('aria-label', 'água');
-  agua.title = 'água';
-  if (selecao === 'agua') agua.classList.add('ativa');
-  agua.addEventListener('click', () => selecionar('agua'));
-  barra.appendChild(agua);
+  // Pincel especial do modo: água (dilui pigmento) ou vazio (apaga luz).
+  // Não personalizável — é derivado do fundo do modo.
+  const especial = document.createElement('button');
+  especial.className = 'cor especial';
+  especial.style.setProperty('--cor', modo.fundo);
+  especial.setAttribute('aria-label', modo.especial.nome);
+  especial.title = modo.especial.nome;
+  if (selecao === 'especial') especial.classList.add('ativa');
+  especial.addEventListener('click', () => selecionar('especial'));
+  barra.appendChild(especial);
 }
 
 function selecionar(nova) {
   selecao = nova;
   document.querySelectorAll('#paleta .cor').forEach((b) => {
-    const dele = b.classList.contains('agua') ? 'agua' : Number(b.dataset.indice);
+    const dele = b.classList.contains('especial') ? 'especial' : Number(b.dataset.indice);
     b.classList.toggle('ativa', dele === selecao);
   });
 }
@@ -657,7 +707,7 @@ function selecionar(nova) {
 function abrirEditorCor(indice, ancora) {
   indiceEmEdicao = indice;
   entradaCor.value = corDoSwatch(indice);
-  botaoRestaurar.hidden = !coresPersonalizadas[indice];
+  botaoRestaurar.hidden = !coresPersonalizadas[chaveCor(indice)];
   const r = ancora.getBoundingClientRect();
   editorCor.hidden = false;
   const largura = editorCor.offsetWidth;
@@ -672,14 +722,14 @@ function fecharEditorCor() {
 
 entradaCor.addEventListener('input', () => {
   if (indiceEmEdicao === null) return;
-  coresPersonalizadas[indiceEmEdicao] = entradaCor.value;
+  coresPersonalizadas[chaveCor(indiceEmEdicao)] = entradaCor.value;
   gravarArmazenado(CHAVE_PALETA, coresPersonalizadas);
   montarPaleta();
 });
 
 botaoRestaurar.addEventListener('click', () => {
   if (indiceEmEdicao === null) return;
-  delete coresPersonalizadas[indiceEmEdicao];
+  delete coresPersonalizadas[chaveCor(indiceEmEdicao)];
   gravarArmazenado(
     CHAVE_PALETA,
     Object.keys(coresPersonalizadas).length ? coresPersonalizadas : null
@@ -699,6 +749,7 @@ window.addEventListener('pointerdown', (e) => {
 const estante = document.getElementById('estante');
 const obraImg = document.getElementById('obra-img');
 const obraNome = document.getElementById('obra-nome');
+const obraHaiku = document.getElementById('obra-haiku');
 const obraMeta = document.getElementById('obra-meta');
 const figura = document.getElementById('obra-foco');
 const estanteVazia = document.getElementById('estante-vazia');
@@ -733,8 +784,12 @@ async function renderEstante() {
     if (obras[focoEstante] === obra && src) obraImg.src = src;
   });
   obraNome.textContent = obra.nome;
-  // Metadados: hora de criação; a fundação ganha a marca 元 ("origem").
-  obraMeta.innerHTML = `${horaFormatada(obra.criadaEm)}${
+  // Haiku (se houver — obras anteriores à v4 não têm).
+  obraHaiku.innerHTML = obra.haiku ? obra.haiku.join('<br>') : '';
+  obraHaiku.hidden = !obra.haiku;
+  // Metadados: modo + hora; a fundação ganha a marca 元 ("origem").
+  const selo = obra.modo === 'cosmos' ? '✦' : '水';
+  obraMeta.innerHTML = `${selo} · ${horaFormatada(obra.criadaEm)}${
     obra.ehFundacao ? ' <span class="origem" title="a fundação desta sala">元</span>' : ''
   }`;
 
@@ -937,10 +992,41 @@ function nomeDeArquivo(obra, extensao) {
 }
 
 // ---------------------------------------------------------------------------
+// Alternância de modo (água ↔ cosmos)
+// ---------------------------------------------------------------------------
+
+const botaoModo = document.getElementById('alternar-modo');
+
+/** Aplica o modo atual ao motor e à UI. NÃO limpa a obra: é o MESMO fluido,
+ *  só lido no espelho (água absorve, cosmos emite) — trocar não perde nada.
+ *  A respiração fica mais lenta no cosmos (o lento girar do espaço). */
+function aplicarModo() {
+  fluido.definirModo(modo.render);
+  fluido.definirFundo(hexParaRgb(modo.fundo));
+  fluido.definirRitmo(idModo === 'cosmos' ? RITMO_COSMOS : 1);
+  corpo.classList.toggle('modo-cosmos', idModo === 'cosmos');
+  // A seleção pode não existir na nova paleta — volta para a 1ª tinta.
+  if (selecao !== 'especial' && selecao >= modo.paleta.length) selecao = 0;
+  botaoModo.textContent = idModo === 'cosmos' ? '✦' : '◐';
+  botaoModo.title = idModo === 'cosmos' ? 'cosmos (trocar para água)' : 'água (trocar para cosmos)';
+  montarPaleta();
+  atualizarAtmosfera();
+}
+
+function trocarModo() {
+  idModo = idModo === 'agua' ? 'cosmos' : 'agua';
+  modo = MODOS[idModo];
+  gravarArmazenado(CHAVE_MODO, idModo);
+  aplicarModo();
+}
+
+botaoModo.addEventListener('click', trocarModo);
+
+// ---------------------------------------------------------------------------
 // Início
 // ---------------------------------------------------------------------------
 
-montarPaleta();
+aplicarModo(); // monta a paleta do modo + fundo/ritmo/atmosfera
 document.getElementById('lavar').addEventListener('click', lavar);
 document.getElementById('guardar').addEventListener('click', () => guardar(false));
 window.addEventListener('resize', () => fluido.redimensionar());

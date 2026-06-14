@@ -184,9 +184,12 @@ export function comporAtmosfera(ciclo, tom) {
  * âmbar suave. A vinheta é o gradiente ficando mais opaco nas bordas.
  *
  * @param {{luminosidade,calidez,vinheta}} atm
+ * @param {number} [escala=1] - multiplica a opacidade do véu. O cosmos usa
+ *   um valor menor: o vazio já é escuro, então uma vinheta densa de "papel"
+ *   o sufocaria — lá a profundidade vem do próprio vazio, não do overlay.
  * @returns {{ centro: string, borda: string }} cores rgba() do gradiente
  */
-export function corDaAtmosfera(atm) {
+export function corDaAtmosfera(atm, escala = 1) {
   // Escuridão geral: 0 ao meio-dia, ~0.6 na calada da noite.
   const escuro = Math.max(0, 1 - atm.luminosidade);
 
@@ -201,8 +204,8 @@ export function corDaAtmosfera(atm) {
   const [vr, vg, vb] = cor.map(Math.round);
 
   // Alfa no centro vem só da escuridão; nas bordas soma a vinheta.
-  const alfaCentro = escuro * 0.5;
-  const alfaBorda = Math.min(0.95, alfaCentro + atm.vinheta * 0.55);
+  const alfaCentro = escuro * 0.5 * escala;
+  const alfaBorda = Math.min(0.95, alfaCentro + atm.vinheta * 0.55 * escala);
 
   return {
     centro: `rgba(${vr}, ${vg}, ${vb}, ${alfaCentro.toFixed(3)})`,

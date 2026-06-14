@@ -55,6 +55,7 @@ export function instalarInput(alvo, { aoPingar, aoArrastar, aoSoltar }) {
   let ultimoY = 0;
   let arrastando = false;
   let ultimoTempo = 0;
+  let inicioTempo = 0; // quando o toque começou (p/ distinguir tap curto)
   let rapidezSuavizada = 0;
 
   // Movimentos acumulados desde o último quadro. Pointer events podem
@@ -72,7 +73,7 @@ export function instalarInput(alvo, { aoPingar, aoArrastar, aoSoltar }) {
     alvo.setPointerCapture(e.pointerId);
     inicioX = ultimoX = e.clientX;
     inicioY = ultimoY = e.clientY;
-    ultimoTempo = e.timeStamp;
+    ultimoTempo = inicioTempo = e.timeStamp;
     arrastando = false;
     rapidezSuavizada = 0;
   });
@@ -129,8 +130,10 @@ export function instalarInput(alvo, { aoPingar, aoArrastar, aoSoltar }) {
   function terminarGesto(e) {
     if (e.pointerId !== ponteiroAtivo) return;
     if (!arrastando && e.type === 'pointerup') {
-      // Soltou sem ter virado drag → era um tap: pinga gota.
-      aoPingar(e.clientX, e.clientY);
+      // Soltou sem ter virado drag → era um tap: pinga gota. A duração
+      // distingue tap-rápido de toque-mantido (o cosmos usa isso: tap
+      // curto = estrela; segurar = nebulosa).
+      aoPingar(e.clientX, e.clientY, e.timeStamp - inicioTempo);
     } else if (arrastando) {
       // Fim de um arraste: avisa para a inércia assumir.
       aoSoltar();

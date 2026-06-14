@@ -428,10 +428,59 @@ precision highp float;
 in vec2 vUv;
 out vec4 saida;
 uniform sampler2D uTinta;
-uniform vec3 uPapel;
+uniform vec3 uFundo;    // água: papel washi; cosmos: vazio profundo
+uniform int uModo;      // 0 = subtrativo (absorção); 1 = aditivo (emissão)
+uniform float uBrilho;  // cosmos: ganho de emissão (dia/noite)
 void main() {
-  vec3 densidade = texture(uTinta, vUv).rgb;
-  saida = vec4(uPapel * exp(-densidade), 1.0);
+  vec3 d = texture(uTinta, vUv).rgb;
+  vec3 cor;
+  if (uModo == 0) {
+    // ÁGUA — Beer-Lambert: a tinta ABSORVE a luz do papel (escurece).
+    cor = uFundo * exp(-d);
+  } else {
+    // COSMOS — o MESMO campo de densidade, lido no espelho: agora ele
+    // EMITE luz sobre o vazio (clareia). O tonemap 1 − exp(−x) satura
+    // suave (núcleos densos tendem ao branco sem estourar feio), e somar
+    // densidades = somar luz (duas nebulosas se acendem juntas).
+    cor = uFundo + (1.0 - exp(-d * uBrilho));
+  }
+  saida = vec4(cor, 1.0);
+}`;
+
+// ESTRELAS (modo cosmos) — pontos de luz nítidos que NÃO são fluido: não
+// advectam, ficam fixos enquanto o gás flui por trás. Desenhados como
+// gl.POINTS com blend ADITIVO, numa passada própria por cima do campo.
+const VS_ESTRELA = `#version 300 es
+layout(location = 0) in vec2 aPos;    // posição em clip space (-1..1)
+layout(location = 1) in float aTam;   // tamanho como fração da altura do alvo
+layout(location = 2) in vec3 aCor;
+layout(location = 3) in float aBrilho;
+layout(location = 4) in float aFase;  // fase da cintilação (varia por estrela)
+uniform float uAltura;  // altura do alvo em px → tamanho do ponto
+uniform float uTempo;   // s, para a cintilação
+uniform float uCintila; // 1 = cintila; 0 = parado (prefers-reduced-motion)
+out vec3 vCor;
+out float vBrilho;
+void main() {
+  gl_Position = vec4(aPos, 0.0, 1.0);
+  gl_PointSize = max(2.0, aTam * uAltura);
+  float tw = mix(1.0, 0.72 + 0.28 * sin(uTempo * 2.5 + aFase), uCintila);
+  vCor = aCor;
+  vBrilho = aBrilho * tw;
+}`;
+
+const FS_ESTRELA = `#version 300 es
+precision highp float;
+in vec3 vCor;
+in float vBrilho;
+out vec4 saida;
+void main() {
+  vec2 d = gl_PointCoord - 0.5;
+  float r = length(d) * 2.0;                 // 0 no centro, 1 na borda
+  float nucleo = smoothstep(0.4, 0.0, r);    // o ponto nítido da estrela
+  float glow = exp(-r * r * 5.0);            // o halo suave ao redor
+  float i = (nucleo + glow * 0.5) * vBrilho;
+  saida = vec4(vCor * i, 1.0);               // blend ONE,ONE soma a luz
 }`;
 
 // ---------------------------------------------------------------------------
@@ -520,10 +569,47 @@ export function criarFluido(canvas, corPapel, opcoes = {}) {
   const progDesbotar = programa(FS_DESBOTAR);
   const progExibir = programa(FS_EXIBIR);
 
-  // O papel é mutável: o ritual de entrada pode tingi-lo levemente com o
-  // tema extraído da obra. Como a textura de tinta guarda DENSIDADE (não
-  // cor), trocar o papel é só trocar um uniform — a obra não é afetada.
-  let papel = [corPapel[0], corPapel[1], corPapel[2]];
+  // Programa das estrelas: usa um vertex shader próprio (não o VS_TELA),
+  // então tem seu próprio link (com locations via layout no GLSL).
+  function programaVF(vsFonte, fsFonte) {
+    const p = gl.createProgram();
+    gl.attachShader(p, compilar(gl.VERTEX_SHADER, vsFonte));
+    gl.attachShader(p, compilar(gl.FRAGMENT_SHADER, fsFonte));
+    gl.linkProgram(p);
+    if (!gl.getProgramParameter(p, gl.LINK_STATUS)) {
+      throw new Error('Erro de link (estrela): ' + gl.getProgramInfoLog(p));
+    }
+    const uniforms = {};
+    const n = gl.getProgramParameter(p, gl.ACTIVE_UNIFORMS);
+    for (let i = 0; i < n; i++) {
+      const nome = gl.getActiveUniform(p, i).name;
+      uniforms[nome] = gl.getUniformLocation(p, nome);
+    }
+    return { p, u: uniforms };
+  }
+  const progEstrela = programaVF(VS_ESTRELA, FS_ESTRELA);
+
+  // Buffer das estrelas: 8 floats por estrela
+  // [clipX, clipY, tamFrac, r, g, b, brilho, fase].
+  const STRIDE_ESTRELA = 8;
+  const vaoEstrela = gl.createVertexArray();
+  const vboEstrela = gl.createBuffer();
+  gl.bindVertexArray(vaoEstrela);
+  gl.bindBuffer(gl.ARRAY_BUFFER, vboEstrela);
+  const bytes = STRIDE_ESTRELA * 4;
+  gl.enableVertexAttribArray(0); gl.vertexAttribPointer(0, 2, gl.FLOAT, false, bytes, 0);
+  gl.enableVertexAttribArray(1); gl.vertexAttribPointer(1, 1, gl.FLOAT, false, bytes, 8);
+  gl.enableVertexAttribArray(2); gl.vertexAttribPointer(2, 3, gl.FLOAT, false, bytes, 12);
+  gl.enableVertexAttribArray(3); gl.vertexAttribPointer(3, 1, gl.FLOAT, false, bytes, 24);
+  gl.enableVertexAttribArray(4); gl.vertexAttribPointer(4, 1, gl.FLOAT, false, bytes, 28);
+  gl.bindVertexArray(vao);
+  let numEstrelas = 0;
+
+  // Estado de composição (como a densidade vira pixel). O fluido em si é
+  // idêntico nos dois modos — só esta leitura final muda.
+  let fundo = [corPapel[0], corPapel[1], corPapel[2]]; // cor base atrás do fluido
+  let modoRender = 0; // 0 = água (subtrativo); 1 = cosmos (aditivo)
+  let brilhoCosmos = 1; // ganho de emissão do cosmos (dia/noite)
 
   // Multiplicador do relógio da ondulação (o "temperamento" da água, que
   // o ritual calibra: gesto calmo → respiração mais lenta).
@@ -783,27 +869,22 @@ export function criarFluido(canvas, corPapel, opcoes = {}) {
   }
 
   /**
-   * Pinga uma gota de tinta: soma DENSIDADE de pigmento e empurra a água
-   * em anel para fora — o empurrão que abre espaço e desloca a tinta
-   * vizinha, como a tensão superficial faz com uma gota de sumi real.
+   * Pinga uma gota: soma DENSIDADE ao campo de fluido e empurra a água em
+   * anel para fora (o empurrão que abre espaço e desloca o que está em
+   * volta, como a tensão superficial de uma gota real).
    *
-   * A conversão cor → densidade inverte a Beer-Lambert: se queremos que
-   * uma camada da tinta pura mostre a cor C sobre papel branco, a
-   * densidade é D = −ln(C) (pois exp(−(−ln C)) = C). O ε protege cores
-   * com canal zero (−ln(0) = ∞).
+   * Recebe a densidade JÁ CONVERTIDA — quem traduz cor → densidade é o
+   * modo (modos.js), porque é aí que mora o "espelho": na água a densidade
+   * é absorção (−ln da cor); no cosmos é emissão (a própria luz). O motor
+   * não precisa saber qual — só soma densidade e empurra.
    *
-   * @param {[number,number,number]} cor - RGB em [0,1]
+   * No cosmos, esta mesma gota é lida como uma NEBULOSA: uma nuvem de gás
+   * luminoso. É o splat da água, no espelho.
+   *
+   * @param {[number,number,number]} densidade - por canal
    */
-  function pingar(x, y, raioPx, cor) {
-    const eps = 1e-3;
-    const densidade = [
-      -Math.log(Math.max(cor[0], eps)),
-      -Math.log(Math.max(cor[1], eps)),
-      -Math.log(Math.max(cor[2], eps)),
-    ];
+  function pingar(x, y, raioPx, densidade) {
     splat(tinta, x, y, densidade, raioPx, 1);
-    // O empurrão radial alcança além da mancha de cor (a água ao redor
-    // também se move) — daí o raio maior.
     splat(velocidade, x, y, [FORCA_GOTA, 0, 0], raioPx * 1.6, 2);
   }
 
@@ -848,18 +929,86 @@ export function criarFluido(canvas, corPapel, opcoes = {}) {
     tinta.trocar();
   }
 
-  /** Desenha a tinta na tela (densidade → cor via Beer-Lambert). */
-  function exibir() {
+  /**
+   * Compõe a cena (fluido + estrelas) num alvo (null = tela). É o ponto
+   * onde a densidade vira pixel, conforme o modo, e onde a camada de
+   * estrelas (cosmos) é desenhada POR CIMA do fluido com blend aditivo.
+   */
+  function desenharComposicao(alvo, tempo, cintila) {
+    // 1. O fluido (água: absorção; cosmos: emissão).
     gl.bindVertexArray(vao);
     gl.useProgram(progExibir.p);
     gl.uniform1i(progExibir.u.uTinta, ligarTextura(0, tinta.lê.tex));
-    gl.uniform3f(progExibir.u.uPapel, papel[0], papel[1], papel[2]);
-    passada(progExibir, null);
+    gl.uniform3f(progExibir.u.uFundo, fundo[0], fundo[1], fundo[2]);
+    gl.uniform1i(progExibir.u.uModo, modoRender);
+    gl.uniform1f(progExibir.u.uBrilho, brilhoCosmos);
+    passada(progExibir, alvo);
+
+    // 2. As estrelas (só no cosmos): pontos fixos, somando luz por cima.
+    if (modoRender === 1 && numEstrelas > 0) {
+      const w = alvo ? alvo.w : canvas.width;
+      const h = alvo ? alvo.h : canvas.height;
+      gl.enable(gl.BLEND);
+      gl.blendFunc(gl.ONE, gl.ONE); // aditivo: soma luz
+      gl.useProgram(progEstrela.p);
+      gl.bindVertexArray(vaoEstrela);
+      gl.uniform1f(progEstrela.u.uAltura, h);
+      gl.uniform1f(progEstrela.u.uTempo, tempo || 0);
+      gl.uniform1f(progEstrela.u.uCintila, cintila ? 1 : 0);
+      gl.bindFramebuffer(gl.FRAMEBUFFER, alvo ? alvo.fbo : null);
+      gl.viewport(0, 0, w, h);
+      gl.drawArrays(gl.POINTS, 0, numEstrelas);
+      gl.disable(gl.BLEND);
+      gl.bindVertexArray(vao);
+    }
   }
 
-  /** Tinge o papel (a obra não muda: densidade independe do papel). */
-  function definirPapel(rgb) {
-    papel = [rgb[0], rgb[1], rgb[2]];
+  /** Desenha a cena na tela. tempo (s) e cintila controlam as estrelas. */
+  function exibir(tempo, cintila) {
+    desenharComposicao(null, tempo, cintila);
+  }
+
+  /** Define a cor base atrás do fluido (papel washi ou vazio do cosmos).
+   *  A obra não muda: a densidade independe do fundo. */
+  function definirFundo(rgb) {
+    fundo = [rgb[0], rgb[1], rgb[2]];
+  }
+
+  /** Seleciona o caminho de render: 0 = água (subtrativo), 1 = cosmos. */
+  function definirModo(m) {
+    modoRender = m;
+  }
+
+  /** Ganho de emissão do cosmos (dia ↔ noite). Sem efeito na água. */
+  function definirBrilho(b) {
+    brilhoCosmos = b;
+  }
+
+  /**
+   * Carrega a lista de estrelas na GPU. Cada estrela:
+   * { xn, yn (0..1, origem topo-esq), tam (fração da altura), cor [r,g,b],
+   *   brilho, fase }. Reenviar só quando a lista muda (não por quadro).
+   */
+  function definirEstrelas(lista) {
+    numEstrelas = lista.length;
+    if (numEstrelas === 0) return;
+    const buf = new Float32Array(numEstrelas * STRIDE_ESTRELA);
+    for (let i = 0; i < numEstrelas; i++) {
+      const e = lista[i];
+      const o = i * STRIDE_ESTRELA;
+      buf[o] = e.xn * 2 - 1; // clip x
+      buf[o + 1] = 1 - e.yn * 2; // clip y (eixo invertido)
+      buf[o + 2] = e.tam;
+      buf[o + 3] = e.cor[0];
+      buf[o + 4] = e.cor[1];
+      buf[o + 5] = e.cor[2];
+      buf[o + 6] = e.brilho;
+      buf[o + 7] = e.fase;
+    }
+    gl.bindVertexArray(vaoEstrela);
+    gl.bindBuffer(gl.ARRAY_BUFFER, vboEstrela);
+    gl.bufferData(gl.ARRAY_BUFFER, buf, gl.DYNAMIC_DRAW);
+    gl.bindVertexArray(vao);
   }
 
   /** Ajusta o ritmo da respiração ambiente (1 = padrão; <1 mais lenta). */
@@ -874,16 +1023,13 @@ export function criarFluido(canvas, corPapel, opcoes = {}) {
    * do WebGL (de baixo para cima — quem desenhar em canvas 2D deve
    * inverter o eixo y).
    */
-  function capturar(largura) {
+  function capturar(largura, tempo, cintila) {
     const w = Math.max(1, Math.round(largura));
     const h = Math.max(1, Math.round(w / proporcao));
     const alvo = criarAlvo(w, h, gl.RGBA8, gl.RGBA, gl.LINEAR, gl.UNSIGNED_BYTE);
 
-    gl.bindVertexArray(vao);
-    gl.useProgram(progExibir.p);
-    gl.uniform1i(progExibir.u.uTinta, ligarTextura(0, tinta.lê.tex));
-    gl.uniform3f(progExibir.u.uPapel, papel[0], papel[1], papel[2]);
-    passada(progExibir, alvo);
+    // Mesma composição da tela (fluido + estrelas), só que num alvo grande.
+    desenharComposicao(alvo, tempo, cintila);
 
     const pixels = new Uint8Array(w * h * 4);
     gl.readPixels(0, 0, w, h, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
@@ -909,7 +1055,10 @@ export function criarFluido(canvas, corPapel, opcoes = {}) {
     mexer,
     desbotar,
     exibir,
-    definirPapel,
+    definirFundo,
+    definirModo,
+    definirBrilho,
+    definirEstrelas,
     definirRitmo,
     capturar,
     dimensoesTinta,

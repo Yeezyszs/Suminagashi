@@ -12,6 +12,13 @@
   --sumi: #1c1c1c;        /* tinta e texto primário */
   --sumi-suave: #6b655b;  /* texto secundário, rótulos, metadados */
   --shu: #b5402e;         /* vermelhão — SÓ no selo hanko ao guardar */
+  --vazio: #05060d;       /* cosmos: fundo do vazio (nunca #000 chapado) */
+  --vazio-alto: #0b0e1a;  /* cosmos: leve profundidade do vazio */
+  /* "ar" atrás da cena — washi na água, vazio no cosmos. A UI usa este
+     token para escurecer coerentemente no modo cosmos. */
+  --ar: var(--washi-fundo);
+  --texto: var(--sumi);
+  --texto-suave: var(--sumi-suave);
 
   /* Durações da coreografia (chutes iniciais; calibrar no tato). */
   --emergir: 250ms;
@@ -31,6 +38,16 @@ body {
   /* Mincho de sistema para o display; nada de webfont. */
   font-family: "Hiragino Mincho ProN", "Yu Mincho", "Songti SC", Georgia, serif;
   color: var(--sumi);
+  transition: background 0.7s ease, color 0.7s ease;
+}
+
+/* Modo cosmos: a sala inteira escurece coerentemente — o "ar" vira vazio,
+   o texto clareia. O selo hanko (--shu) segue sendo o único vermelho. */
+body.modo-cosmos {
+  --washi-fundo: #05060d;
+  --washi: #0b0e1a;
+  --sumi: #e8ecf6;
+  --sumi-suave: #8a93a8;
 }
 
 /* Rótulos, metadados e texto latino: utilitário, pequeno, discreto. */
@@ -226,7 +243,7 @@ body.pintando #ferramentas {
   box-shadow: inset 0 0 0 2px rgba(255, 255, 255, 0.55);
 }
 
-.cor.agua {
+.cor.especial {
   border: 1px solid color-mix(in srgb, var(--sumi) 22%, transparent);
 }
 
@@ -256,6 +273,25 @@ body.pintando #ferramentas {
 
 .acoes button:hover {
   opacity: 1;
+}
+
+/* Alternador de modo água ↔ cosmos: símbolo discreto, não botão rotulado. */
+#alternar-modo {
+  flex-shrink: 0;
+  border: none;
+  background: none;
+  font-size: 1.15rem;
+  line-height: 1;
+  color: var(--sumi);
+  opacity: 0.55;
+  cursor: pointer;
+  padding: 0.2rem 0.45rem;
+  transition: opacity 0.2s ease, transform 0.3s ease;
+}
+
+#alternar-modo:hover {
+  opacity: 1;
+  transform: rotate(18deg);
 }
 
 /* "guardar" é a ação-assinatura: um traço a mais de presença. */
@@ -507,6 +543,20 @@ body.pintando #ferramentas {
   color: var(--sumi);
 }
 
+/* Haiku sob o nome: três versos, mincho, discreto. */
+#obra-haiku {
+  font-family: "Hiragino Mincho ProN", "Yu Mincho", Georgia, serif;
+  font-size: 0.82rem;
+  line-height: 1.7;
+  letter-spacing: 0.05em;
+  color: var(--sumi-suave);
+  margin: 0.15rem 0 0.1rem;
+}
+
+#obra-haiku[hidden] {
+  display: none;
+}
+
 #obra-nome.editavel {
   outline: 1px dashed var(--sumi-suave);
   padding: 0.1rem 0.4rem;
@@ -565,12 +615,14 @@ body.pintando #ferramentas {
 @media (prefers-reduced-motion: reduce) {
   /* Sem animações decorativas: tudo em corte seco (o JS também encurta as
      sequências longas — assentamento e guardar). */
+  body,
   #convite,
   .cor,
   #aviso,
   #ferramentas,
   #moldura,
   #aba-estante,
+  #alternar-modo,
   #estante {
     transition: none;
     animation: none;
