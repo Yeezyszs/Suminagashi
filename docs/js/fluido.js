@@ -431,6 +431,35 @@ uniform sampler2D uTinta;
 uniform vec3 uFundo;    // água: papel washi; cosmos: vazio profundo
 uniform int uModo;      // 0 = subtrativo (absorção); 1 = aditivo (emissão)
 uniform float uBrilho;  // cosmos: ganho de emissão (dia/noite)
+uniform float uTempo;   // s, para a cintilação do campo de estrelas
+uniform float uAspecto; // largura/altura (p/ células de estrela quadradas)
+
+// Hash determinístico 2D → [0,1): a "semente" de cada estrela do campo.
+float hash21(vec2 p) {
+  p = fract(p * vec2(123.34, 456.21));
+  p += dot(p, p + 45.32);
+  return fract(p.x * p.y);
+}
+
+// Uma CAMADA de estrelas: divide a tela numa grade; parte das células
+// acende uma estrela com núcleo nítido + halo suave (o halo é o que faz
+// estrelas de ~1px serem visíveis). Somar camadas de densidades diferentes
+// dá um céu denso e natural — milhares de pontos.
+float camadaEstrelas(vec2 uv, float densidade, float nitidez, float limiar, float tempo) {
+  vec2 g = uv * densidade;
+  vec2 cel = floor(g);
+  float h = hash21(cel);
+  if (h < limiar) return 0.0; // célula vazia (controla a densidade)
+  vec2 pos = vec2(hash21(cel + 1.7), hash21(cel + 8.3));
+  float d = length(fract(g) - pos);
+  float nucleo = smoothstep(nitidez, 0.0, d);     // o ponto
+  float halo = exp(-d * d * 26.0) * 0.5;          // faz o ponto pequeno "acender"
+  float b = nucleo + halo;
+  b *= 0.35 + 0.65 * hash21(cel + 3.1);           // brilhos variados
+  b *= 0.6 + 0.4 * sin(tempo * 2.5 + h * 40.0);   // cada uma cintila no seu tempo
+  return b;
+}
+
 void main() {
   vec3 d = texture(uTinta, vUv).rgb;
   vec3 cor;
@@ -438,11 +467,30 @@ void main() {
     // ÁGUA — Beer-Lambert: a tinta ABSORVE a luz do papel (escurece).
     cor = uFundo * exp(-d);
   } else {
-    // COSMOS — o MESMO campo de densidade, lido no espelho: agora ele
-    // EMITE luz sobre o vazio (clareia). O tonemap 1 − exp(−x) satura
-    // suave (núcleos densos tendem ao branco sem estourar feio), e somar
-    // densidades = somar luz (duas nebulosas se acendem juntas).
-    cor = uFundo + (1.0 - exp(-d * uBrilho));
+    // COSMOS — o vazio coberto de estrelas, com o gás (a densidade) emitindo
+    // luz por cima. É o MESMO campo de densidade da água, lido no espelho.
+    vec2 uv = vec2(vUv.x * uAspecto, vUv.y); // células quadradas
+    vec3 gas = 1.0 - exp(-d * uBrilho);      // tonemap suave (satura sem estourar)
+
+    // Campo de estrelas de fundo: quatro camadas (muitíssimas pequenas …
+    // poucas grandes e brilhantes) → um céu denso de verdade.
+    float campo = 0.0;
+    campo += camadaEstrelas(uv, 130.0, 0.34, 0.28, uTempo) * 0.7;
+    campo += camadaEstrelas(uv, 80.0, 0.26, 0.45, uTempo * 0.8) * 0.95;
+    campo += camadaEstrelas(uv, 45.0, 0.22, 0.62, uTempo * 0.6) * 1.3;
+    campo += camadaEstrelas(uv, 22.0, 0.18, 0.80, uTempo * 0.5) * 1.9;
+    vec3 luzCampo = vec3(0.74, 0.81, 1.0) * campo * (0.6 + 0.5 * uBrilho);
+
+    // Poeira estelar: glitter dourado/branco que SÓ acende onde há gás — é o
+    // que transforma uma nuvem girada em braço de galáxia cravejado de luz.
+    float densGas = clamp((d.r + d.g + d.b) * 0.8, 0.0, 1.0);
+    float glitter = 0.0;
+    glitter += camadaEstrelas(uv, 220.0, 0.30, 0.25, uTempo * 1.6) * 0.8;
+    glitter += camadaEstrelas(uv, 120.0, 0.24, 0.4, uTempo * 1.2) * 1.2;
+    vec3 poeira = mix(vec3(1.0, 0.95, 0.78), vec3(0.8, 0.88, 1.0), 0.4)
+                  * glitter * densGas * 2.4;
+
+    cor = uFundo + gas + luzCampo + poeira;
   }
   saida = vec4(cor, 1.0);
 }`;
@@ -942,6 +990,8 @@ export function criarFluido(canvas, corPapel, opcoes = {}) {
     gl.uniform3f(progExibir.u.uFundo, fundo[0], fundo[1], fundo[2]);
     gl.uniform1i(progExibir.u.uModo, modoRender);
     gl.uniform1f(progExibir.u.uBrilho, brilhoCosmos);
+    gl.uniform1f(progExibir.u.uTempo, tempo || 0);
+    gl.uniform1f(progExibir.u.uAspecto, proporcao);
     passada(progExibir, alvo);
 
     // 2. As estrelas (só no cosmos): pontos fixos, somando luz por cima.
