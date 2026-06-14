@@ -854,18 +854,25 @@ async function exportarObra() {
   botaoExportar.textContent = 'gerando 4K…';
   try {
     const img = await carregarImagem(fonte);
-    // Amplia para 4K (lado maior = LARGURA_EXPORT), mantendo a proporção,
-    // com interpolação de alta qualidade — wallpaper pronto, sem o sistema
-    // operacional ter de esticar (que é o que borrava antes). Se a imagem
-    // já for maior, não amplia: respeita o tamanho nativo.
-    const escala = Math.max(1, LARGURA_EXPORT / img.naturalWidth);
+    // Exporta na PROPORÇÃO DA TELA, não na da janela do navegador. A obra é
+    // capturada no formato da janela (mais larga e baixa que o monitor por
+    // causa da barra de abas), então, como wallpaper, o sistema operacional
+    // teria de esticar/recortar — era isso que mexia na escala e na
+    // qualidade. Aqui geramos a imagem já no formato exato do monitor
+    // (cobrindo + recorte central), em 4K: o wallpaper encaixa perfeito,
+    // sem o SO deformar nada.
+    const { w, h } = alvoWallpaper();
     const cv = document.createElement('canvas');
-    cv.width = Math.round(img.naturalWidth * escala);
-    cv.height = Math.round(img.naturalHeight * escala);
+    cv.width = w;
+    cv.height = h;
     const ctx = cv.getContext('2d');
     ctx.imageSmoothingEnabled = true;
     ctx.imageSmoothingQuality = 'high';
-    ctx.drawImage(img, 0, 0, cv.width, cv.height);
+    // "cover": escala para preencher o alvo e recorta o excedente, centrado.
+    const escala = Math.max(w / img.naturalWidth, h / img.naturalHeight);
+    const dw = img.naturalWidth * escala;
+    const dh = img.naturalHeight * escala;
+    ctx.drawImage(img, (w - dw) / 2, (h - dh) / 2, dw, dh);
     const blob = await new Promise((res) => cv.toBlob(res, 'image/png'));
     if (blob) baixarArquivo(URL.createObjectURL(blob), nomeDeArquivo(obra, 'png'), true);
     else baixarArquivo(fonte, nomeDeArquivo(obra, 'jpg'), false); // fallback
@@ -874,6 +881,21 @@ async function exportarObra() {
     baixarArquivo(fonte, nomeDeArquivo(obra, 'jpg'), false);
   }
   setTimeout(() => (botaoExportar.textContent = 'exportar'), 1200);
+}
+
+/**
+ * Dimensões do PNG de wallpaper: a PROPORÇÃO da tela do usuário, com lado
+ * maior em 4K (LARGURA_EXPORT). Usar a proporção (e não pixels absolutos)
+ * é robusto ao zoom do navegador, que distorce devicePixelRatio mas não a
+ * razão largura/altura do monitor.
+ */
+function alvoWallpaper() {
+  const sw = screen.width || 16;
+  const sh = screen.height || 9;
+  const aspecto = sw / sh;
+  return aspecto >= 1
+    ? { w: LARGURA_EXPORT, h: Math.round(LARGURA_EXPORT / aspecto) }
+    : { w: Math.round(LARGURA_EXPORT * aspecto), h: LARGURA_EXPORT };
 }
 
 function carregarImagem(src) {

@@ -122,7 +122,9 @@ A **resolução é adaptativa**: o detalhe de uma exportação é o detalhe com
 que a simulação rodou (ampliar não cria nitidez), então desktops potentes
 rodam a grade de tinta bem mais fina (até ~3640px nativos) e celulares
 ficam leves. As imagens das obras (1–3MB) ficam no **IndexedDB**; só os
-metadados leves no localStorage.
+metadados leves no localStorage. A exportação sai na **proporção exata da
+sua tela** (preenchendo, com recorte central) — o wallpaper encaixa sem o
+sistema operacional ter de esticar ou recortar.
 
 **Ritual de entrada (primeira visita).** A sala nasce neutra e convida:
 *"pinte. esta sala vai nascer das suas cores."* Você pinta; após alguns
