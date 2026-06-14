@@ -3,14 +3,14 @@
 Registro do que já foi construído, em que pé está cada coisa e o que vem a
 seguir. Documento vivo: atualizar a cada marco.
 
-_Última atualização: 13/06/2026 (v3) — branch `main`_
+_Última atualização: 14/06/2026 (v4) — branch `main`_
 
 ---
 
 ## Onde estamos
 
-A **v1 (motor)**, a **v2 (cores + pigmento)** e a **v3 (o tokonoma)** estão
-funcionais. O motor de marbling geométrico do brief original foi substituído
+A **v1 (motor)**, **v2 (pigmento)**, **v3 (tokonoma)** e **v4 (modos +
+cosmos + batismo)** estão funcionais. O motor de marbling geométrico do brief original foi substituído
 por uma **simulação de fluido real em WebGL2** (a pedido, após o vídeo de
 referência), com mistura de pigmento físico (Beer-Lambert) e paredes que
 refletem a tinta. A experiência foi redesenhada como um **tokonoma**: a UI quase
@@ -44,6 +44,8 @@ tom educacional. UI mínima e em português.
 | 10 | `55f5e22` | **Textura limpa** | Tinta assentada cremosa (dose de nitidez MacCormack + vorticidade/ondas mais calmas). |
 | 11 | (luz) | **v3 luz** | Sistema de atmosfera de duas camadas: ciclo do relógio + tom da fundação. |
 | 12 | (tokonoma) | **v3 tokonoma** | Redesenho completo: estados ocioso/pintando/estante, sequência de guardar (hanko + pergaminho), estante de obras. |
+| 13 | (qualidade) | **Export 4K** | Resolução adaptativa, captura nativa, IndexedDB, export na proporção da tela. |
+| 14 | (v4) | **Modos + Cosmos + Batismo** | Organização de modos (água/cosmos como config), render emissivo, estrelas, alternância; nome e haiku locais determinísticos. |
 
 ---
 
@@ -58,9 +60,10 @@ suminagashi/
       prng.js       # PRNG seedável (mulberry32) — determinismo desde o dia 1
       fluido.js     # MOTOR: solver de Navier-Stokes em WebGL2 + shaders GLSL
       input.js      # Pointer Events → gestos (tap = gota, drag = estilete)
+      modos.js      # os dois modos (água/cosmos) — único lugar de diferença
       luz.js        # atmosfera: ciclo do relógio + tom da fundação (puro)
-      estante.js    # nomes das obras + metadados (puro)
-      main.js       # orquestração, estados, guardar, estante, loop
+      estante.js    # batismo: nome e haiku locais, determinísticos (puro)
+      main.js       # orquestração, estados, modos, guardar, estante, loop
   .github/workflows/pages.yml  # deploy automático a cada push na main
   README.md         # como rodar + explicação da física
   PROGRESSO.md      # este arquivo
@@ -100,6 +103,11 @@ quadro:
 `cor = papel · exp(−D)`. Pingar soma densidade; "água" subtrai (dilui).
 Azul + amarelo → verde, como pigmento de verdade. A atmosfera (luz da
 sala) é um overlay DOM por cima de tudo, derivada da hora + tom da fundação.
+
+**Dois modos, o mesmo fluido:** a simulação é idêntica nos dois; só a leitura
+final (densidade→pixel) muda — água absorve (papel·exp(−d)), cosmos emite
+(vazio + (1−exp(−d))). Os modos vivem em `modos.js` (config); o motor é
+agnóstico. Cosmos tem o gesto extra "estrela" (camada gl.POINTS aditiva).
 
 Gestos viram *splats* gaussianos: a **gota** pinta corante + empurra a água
 em anel (abre espaço); a **água** (cor do papel) só empurra — anéis

@@ -89,6 +89,35 @@ do suminagashi clássico.
 Na barra: 10 tintas + água, e **segurar um swatch (~450ms)** abre um seletor
 para personalizá-lo (persiste no navegador).
 
+## Dois modos: água e cosmos (o mesmo fluido, no espelho)
+
+O motor de fluido é UM só — a mesma física (advecção, vorticidade, pressão).
+O que muda entre os modos é só como a densidade do fluido vira pixel:
+
+- **água** — render **subtrativo** (Beer-Lambert): a tinta absorve a luz do
+  papel washi. `cor = papel · exp(−densidade)`.
+- **cosmos** — render **aditivo/emissivo**: a mesma densidade agora *emite*
+  luz sobre o vazio profundo. `cor = vazio + (1 − exp(−densidade))`. Duas
+  nebulosas sobrepostas somam luz; uma gota vira nuvem de gás, o estilete
+  vira braço de galáxia. Há um gesto novo: **estrelas** (tap curto) —
+  pontos de luz fixos que não fluem com o gás. O ciclo de luz se inverte de
+  sentido: de madrugada o cosmos brilha de verdade; ao meio-dia, fica lavado.
+
+Alterna-se pelo símbolo ◐/✦ nas ferramentas; o modo persiste no navegador e
+trocar não apaga a obra (é o mesmo fluido, olhado no espelho). Cada modo tem
+sua paleta (pigmentos vs. cores estelares) — ver `js/modos.js`, o único
+lugar onde os modos diferem.
+
+## O batismo (nomes e haiku locais)
+
+Cada obra nasce batizada — sem digitar nada, sem rede, sem IA. O nome (e um
+**haiku** opcional) vêm de léxicos em PT-BR por modo, combinados com a hora
+e a cor dominante, e **semeados por um hash da própria obra**: a mesma obra
+gera sempre o mesmo nome. O haiku é combinatória honesta (versos-molde com
+lacunas) — com bons fragmentos, soa bonito e quase nunca repete. Renomeável
+na estante. Ex.: "Maré da Meia-Noite" (água), "Constelação da Madrugada"
+(cosmos).
+
 ## O tokonoma (a sala)
 
 O site não é "um canvas com uma barra de cores" — é um **tokonoma** (床の間),
@@ -141,8 +170,9 @@ js/
   prng.js     # PRNG seedável (mulberry32) — determinismo desde o dia 1
   fluido.js   # motor: solver de Navier-Stokes em WebGL2 + shaders
   input.js    # pointer events → gestos (tap = gota, drag = estilete)
+  modos.js    # os dois modos (água/cosmos) — único lugar de diferença
   luz.js      # atmosfera: ciclo do relógio + tom da fundação (puro)
-  estante.js  # nomes das obras + metadados (puro)
+  estante.js  # batismo: nome e haiku locais, determinísticos (puro)
   main.js     # orquestração, estados, guardar, estante, loop
 ```
 
