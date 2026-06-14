@@ -467,30 +467,23 @@ void main() {
     // ÁGUA — Beer-Lambert: a tinta ABSORVE a luz do papel (escurece).
     cor = uFundo * exp(-d);
   } else {
-    // COSMOS — o vazio coberto de estrelas, com o gás (a densidade) emitindo
-    // luz por cima. É o MESMO campo de densidade da água, lido no espelho.
+    // COSMOS — o vazio (tela preta) com o gás (a densidade) emitindo luz.
+    // A tela começa vazia: as estrelas são colocadas pelo usuário (camada
+    // de pontos, desenhada à parte). Aqui só há o gás que ele pinta e um
+    // glitter sutil DENTRO do gás (estrelas nascendo na nebulosa).
     vec2 uv = vec2(vUv.x * uAspecto, vUv.y); // células quadradas
     vec3 gas = 1.0 - exp(-d * uBrilho);      // tonemap suave (satura sem estourar)
 
-    // Campo de estrelas de fundo: quatro camadas (muitíssimas pequenas …
-    // poucas grandes e brilhantes) → um céu denso de verdade.
-    float campo = 0.0;
-    campo += camadaEstrelas(uv, 130.0, 0.34, 0.28, uTempo) * 0.7;
-    campo += camadaEstrelas(uv, 80.0, 0.26, 0.45, uTempo * 0.8) * 0.95;
-    campo += camadaEstrelas(uv, 45.0, 0.22, 0.62, uTempo * 0.6) * 1.3;
-    campo += camadaEstrelas(uv, 22.0, 0.18, 0.80, uTempo * 0.5) * 1.9;
-    vec3 luzCampo = vec3(0.74, 0.81, 1.0) * campo * (0.6 + 0.5 * uBrilho);
-
-    // Poeira estelar: glitter dourado/branco que SÓ acende onde há gás — é o
-    // que transforma uma nuvem girada em braço de galáxia cravejado de luz.
+    // Poeira estelar: glitter que SÓ acende onde há gás — dá textura de
+    // berçário estelar à nebulosa, sem poluir o vazio que o usuário deixou.
     float densGas = clamp((d.r + d.g + d.b) * 0.8, 0.0, 1.0);
     float glitter = 0.0;
-    glitter += camadaEstrelas(uv, 220.0, 0.30, 0.25, uTempo * 1.6) * 0.8;
-    glitter += camadaEstrelas(uv, 120.0, 0.24, 0.4, uTempo * 1.2) * 1.2;
-    vec3 poeira = mix(vec3(1.0, 0.95, 0.78), vec3(0.8, 0.88, 1.0), 0.4)
-                  * glitter * densGas * 2.4;
+    glitter += camadaEstrelas(uv, 220.0, 0.30, 0.30, uTempo * 1.6) * 0.7;
+    glitter += camadaEstrelas(uv, 120.0, 0.24, 0.45, uTempo * 1.2) * 1.0;
+    vec3 poeira = mix(vec3(1.0, 0.95, 0.78), vec3(0.82, 0.9, 1.0), 0.4)
+                  * glitter * densGas * 1.6;
 
-    cor = uFundo + gas + luzCampo + poeira;
+    cor = uFundo + gas + poeira;
   }
   saida = vec4(cor, 1.0);
 }`;

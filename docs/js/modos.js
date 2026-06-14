@@ -53,8 +53,8 @@ export const MODO_AGUA = {
     { nome: 'ameixa', cor: '#7A5577' },
     { nome: 'terracota', cor: '#C07A50' },
   ],
-  especial: { id: 'agua', nome: 'água' }, // dilui pigmento (abre anéis)
-  especiais: [],
+  // Pincéis especiais (além das cores): a água dilui pigmento (abre anéis).
+  pinceis: [{ id: 'agua', nome: 'água', simbolo: '○' }],
 
   /**
    * Cor → densidade óptica (Beer-Lambert invertido): para uma camada da
@@ -108,8 +108,12 @@ export const MODO_COSMOS = {
     { nome: 'ouro-pálido', cor: '#FFE9A8' },
     { nome: 'verde-nebulosa', cor: '#8AFFC1' },
   ],
-  especial: { id: 'vazio', nome: 'vazio' }, // apaga luz (abre buracos no gás)
-  especiais: ['estrela'],
+  // Pincéis especiais: 'estrelas' espalha pontos de luz (você monta o céu),
+  // 'vazio' apaga luz (abre buracos escuros no gás).
+  pinceis: [
+    { id: 'estrelas', nome: 'estrelas', simbolo: '✦' },
+    { id: 'vazio', nome: 'vazio', simbolo: '○' },
+  ],
 
   /** Cor estelar → densidade emissiva: linear na cor (a luz que ela
    *  irradia), escalada pelo ganho. Somar densidades = somar luz. */

@@ -29,8 +29,7 @@ const CHAVE_FUNDACAO = 'fundacao.v1'; // viés de tom (camada 2 da luz)
 const CHAVE_ESTANTE = 'estante.v1'; // array de obras guardadas
 const CHAVE_MODO = 'modoAtual.v1'; // 'agua' | 'cosmos'
 
-// Estrelas (modo cosmos)
-const TAP_ESTRELA_MS = 260; // tap mais curto que isto = estrela; segurar = nebulosa
+// Estrelas (modo cosmos) — colocadas pelo pincel "estrelas".
 const ESTRELA_TAM = [0.004, 0.013]; // tamanho (fração da altura) — via PRNG
 const ESTRELA_BRILHO = [0.7, 1.3]; // brilho — via PRNG
 
@@ -212,6 +211,7 @@ let selecao = 0;
 // Estrelas do cosmos (não são fluido): lista viva, desenhada por cima.
 // Cada uma: { xn, yn (0..1), tam, cor:[r,g,b], brilho, fase }.
 let estrelas = [];
+let estrelasSujas = false; // pede reenvio do buffer à GPU no próximo quadro
 
 // --- estado geral -----------------------------------------------------------
 
@@ -307,24 +307,30 @@ canvas.addEventListener('pointerdown', () => {
 // ---------------------------------------------------------------------------
 
 const input = instalarInput(canvas, {
-  aoPingar(x, y, duracao) {
+  aoPingar(x, y) {
     if (estanteAberta || guardando) return;
-    // No cosmos, um tap RÁPIDO acende uma estrela (ponto de luz fixo);
-    // segurar um instante deposita uma nebulosa (gás). Na água, tap é
-    // sempre gota. Reusa o mesmo limiar tap-vs-drag; só o tap se desdobra.
-    if (idModo === 'cosmos' && selecao !== 'especial' && duracao < TAP_ESTRELA_MS) {
-      acenderEstrela(x, y, corDoSwatch(selecao));
+    if (selecao === 'estrelas') {
+      // Pincel de estrelas: um toque acende um pequeno punhado de luzes.
+      const n = 1 + Math.floor(rng() * 3);
+      for (let i = 0; i < n; i++) adicionarEstrela(x + entre(rng, -8, 8), y + entre(rng, -8, 8));
+    } else if (selecao === 'agua' || selecao === 'vazio') {
+      fluido.pingarAgua(x, y, entre(rng, RAIO_MINIMO, RAIO_MAXIMO)); // dilui / apaga
     } else {
-      const raio = entre(rng, RAIO_MINIMO, RAIO_MAXIMO);
-      if (selecao === 'especial') fluido.pingarAgua(x, y, raio); // água dilui / vazio apaga
-      else fluido.pingar(x, y, raio, modo.densidade(hexParaRgb(corDoSwatch(selecao))));
+      // Cor: gota de pigmento (água) ou nebulosa de gás (cosmos).
+      fluido.pingar(x, y, entre(rng, RAIO_MINIMO, RAIO_MAXIMO), modo.densidade(hexParaRgb(corDoSwatch(selecao))));
     }
     gestosNoRitual++;
     marcarInteracao();
   },
   aoArrastar(x, y, mx, my, velPx) {
     if (estanteAberta || guardando) return;
-    fluido.mexer(x, y, mx, my, velPx, RAIO_ESTILETE);
+    if (selecao === 'estrelas') {
+      // Arrastar com o pincel de estrelas SEMEIA um rastro — é assim que
+      // se monta o céu à mão. Um pouco de jitter dá largura à faixa.
+      if (rng() < 0.6) adicionarEstrela(x + entre(rng, -14, 14), y + entre(rng, -14, 14));
+    } else {
+      fluido.mexer(x, y, mx, my, velPx, RAIO_ESTILETE);
+    }
     marcarInteracao();
   },
   aoSoltar() {
@@ -378,29 +384,46 @@ function quadro(agora) {
   }
   quadroAnterior = agora;
 
+  // Sobe as estrelas acumuladas no quadro (semear um rastro adiciona
+  // muitas; reenviar o buffer uma vez só evita custo quadrático).
+  if (estrelasSujas) {
+    fluido.definirEstrelas(estrelas);
+    estrelasSujas = false;
+  }
+
   // Estrelas cintilam (cosmos), exceto sob prefers-reduced-motion.
   fluido.exibir(agora / 1000, !reduzMovimento.matches);
   requestAnimationFrame(quadro);
 }
 
-/** Acende uma estrela fixa (cosmos): ponto de luz que NÃO advecta — o gás
- *  flui por trás. Tamanho/brilho variam via PRNG seedável. */
-function acenderEstrela(x, y, corHex) {
+/** Cor de uma estrela: a maioria branco-azulada, algumas quentes/douradas
+ *  — a variação que um céu real tem. */
+function corEstelar() {
+  const r = rng();
+  if (r < 0.7) return [0.82 + rng() * 0.18, 0.86 + rng() * 0.14, 1.0];
+  if (r < 0.9) return [1.0, 0.94 + rng() * 0.06, 0.84 + rng() * 0.12];
+  return [1.0, 0.84, 0.58];
+}
+
+/** Adiciona uma estrela fixa (não advecta: o gás flui por trás). O upload
+ *  para a GPU é adiado para uma vez por quadro (ver o loop) — semear
+ *  centenas de estrelas num arraste não pode reenviar o buffer a cada uma. */
+function adicionarEstrela(x, y) {
   estrelas.push({
     xn: x / canvas.clientWidth,
     yn: y / canvas.clientHeight,
     tam: entre(rng, ESTRELA_TAM[0], ESTRELA_TAM[1]),
-    cor: hexParaRgb(corHex),
+    cor: corEstelar(),
     brilho: entre(rng, ESTRELA_BRILHO[0], ESTRELA_BRILHO[1]),
     fase: rng() * Math.PI * 2,
   });
-  fluido.definirEstrelas(estrelas);
+  estrelasSujas = true;
 }
 
 function limparEstrelas() {
   if (estrelas.length === 0) return;
   estrelas = [];
-  fluido.definirEstrelas(estrelas);
+  estrelasSujas = true;
 }
 
 function lavar() {
@@ -684,22 +707,26 @@ function montarPaleta() {
     barra.appendChild(botao);
   });
 
-  // Pincel especial do modo: água (dilui pigmento) ou vazio (apaga luz).
-  // Não personalizável — é derivado do fundo do modo.
-  const especial = document.createElement('button');
-  especial.className = 'cor especial';
-  especial.style.setProperty('--cor', modo.fundo);
-  especial.setAttribute('aria-label', modo.especial.nome);
-  especial.title = modo.especial.nome;
-  if (selecao === 'especial') especial.classList.add('ativa');
-  especial.addEventListener('click', () => selecionar('especial'));
-  barra.appendChild(especial);
+  // Pincéis especiais do modo (água/vazio diluem; estrelas espalha luz).
+  // São derivados do modo, não personalizáveis. Cada um mostra um símbolo.
+  modo.pinceis.forEach((p) => {
+    const botao = document.createElement('button');
+    botao.className = 'cor pincel';
+    botao.dataset.pincel = p.id;
+    botao.style.setProperty('--cor', p.id === 'estrelas' ? '#cdd8ff' : modo.fundo);
+    botao.textContent = p.simbolo || '';
+    botao.setAttribute('aria-label', p.nome);
+    botao.title = p.nome;
+    if (selecao === p.id) botao.classList.add('ativa');
+    botao.addEventListener('click', () => selecionar(p.id));
+    barra.appendChild(botao);
+  });
 }
 
 function selecionar(nova) {
   selecao = nova;
   document.querySelectorAll('#paleta .cor').forEach((b) => {
-    const dele = b.classList.contains('especial') ? 'especial' : Number(b.dataset.indice);
+    const dele = b.dataset.pincel || Number(b.dataset.indice);
     b.classList.toggle('ativa', dele === selecao);
   });
 }
@@ -1005,8 +1032,9 @@ function aplicarModo() {
   fluido.definirFundo(hexParaRgb(modo.fundo));
   fluido.definirRitmo(idModo === 'cosmos' ? RITMO_COSMOS : 1);
   corpo.classList.toggle('modo-cosmos', idModo === 'cosmos');
-  // A seleção pode não existir na nova paleta — volta para a 1ª tinta.
-  if (selecao !== 'especial' && selecao >= modo.paleta.length) selecao = 0;
+  // A seleção pode não existir na paleta do novo modo — volta à 1ª tinta.
+  const pincelValido = modo.pinceis.some((p) => p.id === selecao);
+  if (!pincelValido && (typeof selecao !== 'number' || selecao >= modo.paleta.length)) selecao = 0;
   botaoModo.textContent = idModo === 'cosmos' ? '✦' : '◐';
   botaoModo.title = idModo === 'cosmos' ? 'cosmos (trocar para água)' : 'água (trocar para cosmos)';
   montarPaleta();

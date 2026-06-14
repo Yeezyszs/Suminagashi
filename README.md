@@ -99,9 +99,11 @@ O que muda entre os modos é só como a densidade do fluido vira pixel:
 - **cosmos** — render **aditivo/emissivo**: a mesma densidade agora *emite*
   luz sobre o vazio profundo. `cor = vazio + (1 − exp(−densidade))`. Duas
   nebulosas sobrepostas somam luz; uma gota vira nuvem de gás, o estilete
-  vira braço de galáxia. Há um gesto novo: **estrelas** (tap curto) —
-  pontos de luz fixos que não fluem com o gás. O ciclo de luz se inverte de
-  sentido: de madrugada o cosmos brilha de verdade; ao meio-dia, fica lavado.
+  vira braço de galáxia. A tela começa um **vazio preto** — você monta o seu
+  universo à mão: o pincel **✦ estrelas** semeia pontos de luz onde você
+  arrasta (não fluem com o gás), as cores pintam nebulosas, o estilete as
+  gira. O ciclo de luz se inverte de sentido: de madrugada o cosmos brilha
+  de verdade; ao meio-dia, fica lavado.
 
 Alterna-se pelo símbolo ◐/✦ nas ferramentas; o modo persiste no navegador e
 trocar não apaga a obra (é o mesmo fluido, olhado no espelho). Cada modo tem
