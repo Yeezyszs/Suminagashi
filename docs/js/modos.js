@@ -108,10 +108,12 @@ export const MODO_COSMOS = {
     { nome: 'ouro-pálido', cor: '#FFE9A8' },
     { nome: 'verde-nebulosa', cor: '#8AFFC1' },
   ],
-  // Pincéis especiais: 'estrelas' espalha pontos de luz (você monta o céu),
-  // 'vazio' apaga luz (abre buracos escuros no gás).
+  // Pincéis especiais. As ESTRELAS não são um pincel: elas florescem onde a
+  // poeira (as cores) se acumula além de um limiar. Aqui ficam só:
+  //   'sopro' — espalha/esfumaça a luz já pintada (véus, caudas);
+  //   'vazio' — apaga luz (esculpe espaço negativo).
   pinceis: [
-    { id: 'estrelas', nome: 'estrelas', simbolo: '✦' },
+    { id: 'sopro', nome: 'sopro', simbolo: '∿' },
     { id: 'vazio', nome: 'vazio', simbolo: '○' },
   ],
 

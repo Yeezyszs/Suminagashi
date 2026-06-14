@@ -29,12 +29,36 @@ const CHAVE_FUNDACAO = 'fundacao.v1'; // viés de tom (camada 2 da luz)
 const CHAVE_ESTANTE = 'estante.v1'; // array de obras guardadas
 const CHAVE_MODO = 'modoAtual.v1'; // 'agua' | 'cosmos'
 
-// Estrelas (modo cosmos) — colocadas pelo pincel "estrelas".
-const ESTRELA_TAM = [0.004, 0.013]; // tamanho (fração da altura) — via PRNG
-const ESTRELA_BRILHO = [0.7, 1.3]; // brilho — via PRNG
+// --- COSMOS: pintura de luz (motor irmão da água; ver fluido.js) ----------
+// O cosmos NÃO roda o solver de fluido: é uma tela parada onde pincéis
+// depositam/espalham/apagam LUZ no buffer. Estrelas FLORESCEM do acúmulo.
 
-// Cosmos: a deriva é mais lenta que a da água (o lento girar do espaço).
-const RITMO_COSMOS = 0.5;
+// Poeira (pincel de cor): cada toque deposita pouca luz; passar de novo
+// acumula em camadas (impasto). Raio macio e largo.
+const POEIRA_INTENSIDADE = 0.16; // luz por depósito (baixa, p/ acumular)
+const POEIRA_RAIO = 55; // px, pincel macio
+
+// Estrela por acúmulo: numa grade grossa, somamos a poeira depositada; ao
+// cruzar o limiar, uma estrela floresce ali e a célula recua (precisa
+// reacumular para acender outra). O limiar é o número mais sensível —
+// alto demais nunca acende; baixo demais vira campo de ruído.
+const CELULA_BLOOM = 26; // px por célula da grade de acúmulo
+const ESTRELA_LIMIAR = 1.5; // acúmulo necessário para florescer
+const ESTRELA_RECUO = 0.7; // fração subtraída da célula após florescer
+const ESTRELA_TAM = [0.005, 0.016]; // tamanho (fração da altura) — via PRNG
+const ESTRELA_BRILHO = [0.8, 1.5]; // brilho — via PRNG
+
+// Sopro (espalhar luz): deslocamento local na direção do gesto.
+const SOPRO_RAIO = 80;
+const SOPRO_FORCA = 0.06; // fração de uv deslocada no centro do pincel
+
+// Vazio (apagar luz): raio e força do apagador.
+const VAZIO_RAIO = 50;
+
+// Assentar: a luz recém-pintada difunde de leve por ~1.4s e PARA.
+const ASSENTAR_DURACAO = 1400; // ms
+const ASSENTAR_FORCA = 0.1; // intensidade máxima da difusão (decai a 0)
+
 // Brilho de emissão do cosmos pelo ciclo de luz: de madrugada brilha de
 // verdade contra o escuro; ao meio-dia fica mais lavado/sutil.
 const BRILHO_NOITE = 1.15;
@@ -208,10 +232,18 @@ const corDoSwatch = (i) => coresPersonalizadas[chaveCor(i)] || modo.paleta[i].co
 // Seleção atual: índice da paleta do modo, ou 'especial' (água / vazio).
 let selecao = 0;
 
-// Estrelas do cosmos (não são fluido): lista viva, desenhada por cima.
-// Cada uma: { xn, yn (0..1), tam, cor:[r,g,b], brilho, fase }.
+// Estrelas do cosmos (florescem do acúmulo de poeira): lista viva,
+// desenhada por cima. Cada uma: { xn, yn, tam, cor:[r,g,b], brilho, fase }.
 let estrelas = [];
 let estrelasSujas = false; // pede reenvio do buffer à GPU no próximo quadro
+
+// Grade de acúmulo da poeira (para o florescer das estrelas).
+let bloomGrade = null; // Float32Array
+let bloomCols = 0;
+let bloomRows = 0;
+
+// Assentar da luz: timestamp até quando a difusão pós-gesto roda.
+let assentarAte = 0;
 
 // --- estado geral -----------------------------------------------------------
 
@@ -309,35 +341,44 @@ canvas.addEventListener('pointerdown', () => {
 const input = instalarInput(canvas, {
   aoPingar(x, y) {
     if (estanteAberta || guardando) return;
-    if (selecao === 'estrelas') {
-      // Pincel de estrelas: um toque acende um pequeno punhado de luzes.
-      const n = 1 + Math.floor(rng() * 3);
-      for (let i = 0; i < n; i++) adicionarEstrela(x + entre(rng, -8, 8), y + entre(rng, -8, 8));
-    } else if (selecao === 'agua' || selecao === 'vazio') {
-      fluido.pingarAgua(x, y, entre(rng, RAIO_MINIMO, RAIO_MAXIMO)); // dilui / apaga
-    } else {
-      // Cor: gota de pigmento (água) ou nebulosa de gás (cosmos).
-      fluido.pingar(x, y, entre(rng, RAIO_MINIMO, RAIO_MAXIMO), modo.densidade(hexParaRgb(corDoSwatch(selecao))));
-    }
+    if (idModo === 'cosmos') pintarLuz(x, y, 0, 0, 0); // tap = pousar luz parada
+    else if (selecao === 'agua') fluido.pingarAgua(x, y, entre(rng, RAIO_MINIMO, RAIO_MAXIMO));
+    else fluido.pingar(x, y, entre(rng, RAIO_MINIMO, RAIO_MAXIMO), modo.densidade(hexParaRgb(corDoSwatch(selecao))));
     gestosNoRitual++;
     marcarInteracao();
   },
   aoArrastar(x, y, mx, my, velPx) {
     if (estanteAberta || guardando) return;
-    if (selecao === 'estrelas') {
-      // Arrastar com o pincel de estrelas SEMEIA um rastro — é assim que
-      // se monta o céu à mão. Um pouco de jitter dá largura à faixa.
-      if (rng() < 0.6) adicionarEstrela(x + entre(rng, -14, 14), y + entre(rng, -14, 14));
-    } else {
-      fluido.mexer(x, y, mx, my, velPx, RAIO_ESTILETE);
-    }
+    if (idModo === 'cosmos') pintarLuz(x, y, mx, my, velPx);
+    else fluido.mexer(x, y, mx, my, velPx, RAIO_ESTILETE); // estilete da água
     marcarInteracao();
   },
   aoSoltar() {
-    // O momentum da própria água continua o movimento.
     gestosNoRitual++;
   },
 });
+
+/**
+ * Pincel de luz do cosmos. O que faz depende da seleção:
+ *  - cor (poeira): deposita luz colorida que ACUMULA; onde acumula além do
+ *    limiar, uma estrela floresce (não se pinga estrela direto);
+ *  - 'sopro': espalha a luz já pintada na direção do gesto;
+ *  - 'vazio': apaga luz.
+ * Reinicia o relógio do "assentar" (a luz recém-posta acomoda por ~1.4s).
+ */
+function pintarLuz(x, y, mx, my, velPx) {
+  if (selecao === 'sopro') {
+    if (velPx > 0) fluido.soprar(x, y, mx, my, SOPRO_RAIO, SOPRO_FORCA);
+  } else if (selecao === 'vazio') {
+    fluido.pingarAgua(x, y, VAZIO_RAIO);
+  } else {
+    const cor = hexParaRgb(corDoSwatch(selecao));
+    const densidade = cor.map((c) => c * POEIRA_INTENSIDADE);
+    fluido.poeira(x, y, POEIRA_RAIO, densidade);
+    acumularPoeira(x, y, cor); // alimenta o florescer das estrelas
+  }
+  assentarAte = performance.now() + ASSENTAR_DURACAO;
+}
 
 // ---------------------------------------------------------------------------
 // Loop de animação
@@ -367,9 +408,16 @@ function quadro(agora) {
       concluirRitual();
     }
 
-    // Suaviza a ondulação em direção ao alvo (assentar/retomar).
-    ondulacaoAtual += (ondulacaoAlvo - ondulacaoAtual) * Math.min(1, dt * 3.5);
-    fluido.passo(dt, reduzMovimento.matches ? 0 : ondulacaoAtual);
+    if (idModo === 'agua') {
+      // ÁGUA: roda a simulação de fluido (a água está sempre viva).
+      ondulacaoAtual += (ondulacaoAlvo - ondulacaoAtual) * Math.min(1, dt * 3.5);
+      fluido.passo(dt, reduzMovimento.matches ? 0 : ondulacaoAtual);
+    } else if (!reduzMovimento.matches && agora < assentarAte) {
+      // COSMOS: tela PARADA (sem solver). Só a luz recém-pintada "acomoda"
+      // por ~1.4s após o gesto — uma difusão que decai e PARA.
+      const restante = (assentarAte - agora) / ASSENTAR_DURACAO; // 1 → 0
+      fluido.assentarLuz(ASSENTAR_FORCA * restante);
+    }
 
     // Lavagem: decaimento suave até zerar a obra em DURACAO_LAVAR.
     if (inicioLavagem !== null) {
@@ -396,24 +444,47 @@ function quadro(agora) {
   requestAnimationFrame(quadro);
 }
 
-/** Cor de uma estrela: a maioria branco-azulada, algumas quentes/douradas
- *  — a variação que um céu real tem. */
-function corEstelar() {
-  const r = rng();
-  if (r < 0.7) return [0.82 + rng() * 0.18, 0.86 + rng() * 0.14, 1.0];
-  if (r < 0.9) return [1.0, 0.94 + rng() * 0.06, 0.84 + rng() * 0.12];
-  return [1.0, 0.84, 0.58];
+/** Garante a grade de acúmulo do tamanho atual da tela (reconstrói se mudou). */
+function garantirGradeBloom() {
+  const cols = Math.max(1, Math.ceil(canvas.clientWidth / CELULA_BLOOM));
+  const rows = Math.max(1, Math.ceil(canvas.clientHeight / CELULA_BLOOM));
+  if (!bloomGrade || cols !== bloomCols || rows !== bloomRows) {
+    bloomCols = cols;
+    bloomRows = rows;
+    bloomGrade = new Float32Array(cols * rows);
+  }
 }
 
-/** Adiciona uma estrela fixa (não advecta: o gás flui por trás). O upload
- *  para a GPU é adiado para uma vez por quadro (ver o loop) — semear
- *  centenas de estrelas num arraste não pode reenviar o buffer a cada uma. */
-function adicionarEstrela(x, y) {
+/** Soma poeira na célula sob (x,y). Ao cruzar o limiar, uma estrela
+ *  FLORESCE ali (consequência de acumular luz, não um clique) e a célula
+ *  recua — concentrar mais luz acende outra. */
+function acumularPoeira(x, y, cor) {
+  garantirGradeBloom();
+  const c = Math.min(bloomCols - 1, Math.max(0, Math.floor(x / CELULA_BLOOM)));
+  const r = Math.min(bloomRows - 1, Math.max(0, Math.floor(y / CELULA_BLOOM)));
+  const i = r * bloomCols + c;
+  bloomGrade[i] += POEIRA_INTENSIDADE;
+  if (bloomGrade[i] >= ESTRELA_LIMIAR) {
+    bloomGrade[i] -= ESTRELA_LIMIAR * ESTRELA_RECUO;
+    const jit = CELULA_BLOOM * 0.3;
+    adicionarEstrela(
+      (c + 0.5) * CELULA_BLOOM + entre(rng, -jit, jit),
+      (r + 0.5) * CELULA_BLOOM + entre(rng, -jit, jit),
+      cor
+    );
+  }
+}
+
+/** Faz nascer uma estrela em (x,y), herdando (e clareando) a cor da poeira
+ *  local — um núcleo mais branco que o gás à volta. O upload à GPU é
+ *  adiado para uma vez por quadro (ver o loop). */
+function adicionarEstrela(x, y, corBase) {
+  const cor = corBase.map((ch) => ch + (1 - ch) * 0.55); // clareia rumo ao branco
   estrelas.push({
     xn: x / canvas.clientWidth,
     yn: y / canvas.clientHeight,
     tam: entre(rng, ESTRELA_TAM[0], ESTRELA_TAM[1]),
-    cor: corEstelar(),
+    cor,
     brilho: entre(rng, ESTRELA_BRILHO[0], ESTRELA_BRILHO[1]),
     fase: rng() * Math.PI * 2,
   });
@@ -421,6 +492,7 @@ function adicionarEstrela(x, y) {
 }
 
 function limparEstrelas() {
+  if (bloomGrade) bloomGrade.fill(0);
   if (estrelas.length === 0) return;
   estrelas = [];
   estrelasSujas = true;
@@ -1025,12 +1097,12 @@ function nomeDeArquivo(obra, extensao) {
 const botaoModo = document.getElementById('alternar-modo');
 
 /** Aplica o modo atual ao motor e à UI. NÃO limpa a obra: é o MESMO fluido,
- *  só lido no espelho (água absorve, cosmos emite) — trocar não perde nada.
- *  A respiração fica mais lenta no cosmos (o lento girar do espaço). */
+ *  trocar não perde a obra (a água absorve, o cosmos emite a mesma luz do
+ *  buffer). São motores irmãos: a água roda o solver de fluido; o cosmos é
+ *  pintura de luz parada (ver fluido.js e o loop). */
 function aplicarModo() {
   fluido.definirModo(modo.render);
   fluido.definirFundo(hexParaRgb(modo.fundo));
-  fluido.definirRitmo(idModo === 'cosmos' ? RITMO_COSMOS : 1);
   corpo.classList.toggle('modo-cosmos', idModo === 'cosmos');
   // A seleção pode não existir na paleta do novo modo — volta à 1ª tinta.
   const pincelValido = modo.pinceis.some((p) => p.id === selecao);

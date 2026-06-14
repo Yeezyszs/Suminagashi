@@ -431,35 +431,6 @@ uniform sampler2D uTinta;
 uniform vec3 uFundo;    // água: papel washi; cosmos: vazio profundo
 uniform int uModo;      // 0 = subtrativo (absorção); 1 = aditivo (emissão)
 uniform float uBrilho;  // cosmos: ganho de emissão (dia/noite)
-uniform float uTempo;   // s, para a cintilação do campo de estrelas
-uniform float uAspecto; // largura/altura (p/ células de estrela quadradas)
-
-// Hash determinístico 2D → [0,1): a "semente" de cada estrela do campo.
-float hash21(vec2 p) {
-  p = fract(p * vec2(123.34, 456.21));
-  p += dot(p, p + 45.32);
-  return fract(p.x * p.y);
-}
-
-// Uma CAMADA de estrelas: divide a tela numa grade; parte das células
-// acende uma estrela com núcleo nítido + halo suave (o halo é o que faz
-// estrelas de ~1px serem visíveis). Somar camadas de densidades diferentes
-// dá um céu denso e natural — milhares de pontos.
-float camadaEstrelas(vec2 uv, float densidade, float nitidez, float limiar, float tempo) {
-  vec2 g = uv * densidade;
-  vec2 cel = floor(g);
-  float h = hash21(cel);
-  if (h < limiar) return 0.0; // célula vazia (controla a densidade)
-  vec2 pos = vec2(hash21(cel + 1.7), hash21(cel + 8.3));
-  float d = length(fract(g) - pos);
-  float nucleo = smoothstep(nitidez, 0.0, d);     // o ponto
-  float halo = exp(-d * d * 26.0) * 0.5;          // faz o ponto pequeno "acender"
-  float b = nucleo + halo;
-  b *= 0.35 + 0.65 * hash21(cel + 3.1);           // brilhos variados
-  b *= 0.6 + 0.4 * sin(tempo * 2.5 + h * 40.0);   // cada uma cintila no seu tempo
-  return b;
-}
-
 void main() {
   vec3 d = texture(uTinta, vUv).rgb;
   vec3 cor;
@@ -467,25 +438,55 @@ void main() {
     // ÁGUA — Beer-Lambert: a tinta ABSORVE a luz do papel (escurece).
     cor = uFundo * exp(-d);
   } else {
-    // COSMOS — o vazio (tela preta) com o gás (a densidade) emitindo luz.
-    // A tela começa vazia: as estrelas são colocadas pelo usuário (camada
-    // de pontos, desenhada à parte). Aqui só há o gás que ele pinta e um
-    // glitter sutil DENTRO do gás (estrelas nascendo na nebulosa).
-    vec2 uv = vec2(vUv.x * uAspecto, vUv.y); // células quadradas
-    vec3 gas = 1.0 - exp(-d * uBrilho);      // tonemap suave (satura sem estourar)
-
-    // Poeira estelar: glitter que SÓ acende onde há gás — dá textura de
-    // berçário estelar à nebulosa, sem poluir o vazio que o usuário deixou.
-    float densGas = clamp((d.r + d.g + d.b) * 0.8, 0.0, 1.0);
-    float glitter = 0.0;
-    glitter += camadaEstrelas(uv, 220.0, 0.30, 0.30, uTempo * 1.6) * 0.7;
-    glitter += camadaEstrelas(uv, 120.0, 0.24, 0.45, uTempo * 1.2) * 1.0;
-    vec3 poeira = mix(vec3(1.0, 0.95, 0.78), vec3(0.82, 0.9, 1.0), 0.4)
-                  * glitter * densGas * 1.6;
-
-    cor = uFundo + gas + poeira;
+    // COSMOS — pintura de luz: o buffer acumula LUZ colorida; o tonemap
+    // 1 − exp(−x) a satura suave sobre o vazio (acumular muito brilha
+    // intenso, mas nunca vira um branco chapado). As estrelas (que
+    // florescem do acúmulo) são desenhadas por cima, à parte.
+    cor = uFundo + (1.0 - exp(-d * uBrilho));
   }
   saida = vec4(cor, 1.0);
+}`;
+
+// SOPRO — espalha a luz JÁ depositada na direção do gesto (véus, caudas de
+// nebulosa). Não é advecção contínua: é um deslocamento LOCAL aplicado só
+// enquanto o dedo se move. Dentro do pincel, cada pixel adota a luz que
+// estava "atrás" dele no sentido do gesto — a luz escorre na direção.
+const FS_SOPRO = `#version 300 es
+precision highp float;
+in vec2 vUv;
+out vec4 saida;
+uniform sampler2D uAlvo;
+uniform vec2 uPonto;      // centro do sopro (uv)
+uniform vec2 uDir;        // direção do gesto (uv/quadro)
+uniform float uRaio;      // raio² gaussiano
+uniform float uProporcao;
+uniform float uForca;
+void main() {
+  vec2 dd = vUv - uPonto;
+  dd.x *= uProporcao;
+  float g = exp(-dot(dd, dd) / uRaio);
+  vec3 atras = texture(uAlvo, vUv - uDir * uForca * g).rgb;
+  vec3 base = texture(uAlvo, vUv).rgb;
+  saida = vec4(mix(base, atras, g), 1.0);
+}`;
+
+// ASSENTAR — a luz recém-pintada "acomoda": uma difusão levíssima (média
+// dos vizinhos) aplicada por ~1-2s após o gesto, decaindo até parar. NÃO é
+// simulação perpétua — é um easing pós-gesto com fim definido (ver o loop).
+const FS_DIFUSO = `#version 300 es
+precision highp float;
+in vec2 vUv;
+out vec4 saida;
+uniform sampler2D uAlvo;
+uniform vec2 uTexel;
+uniform float uQtd;
+void main() {
+  vec3 c = texture(uAlvo, vUv).rgb;
+  vec3 m = (texture(uAlvo, vUv + vec2(uTexel.x, 0.0)).rgb +
+            texture(uAlvo, vUv - vec2(uTexel.x, 0.0)).rgb +
+            texture(uAlvo, vUv + vec2(0.0, uTexel.y)).rgb +
+            texture(uAlvo, vUv - vec2(0.0, uTexel.y)).rgb) * 0.25;
+  saida = vec4(mix(c, m, uQtd), 1.0);
 }`;
 
 // ESTRELAS (modo cosmos) — pontos de luz nítidos que NÃO são fluido: não
@@ -609,6 +610,8 @@ export function criarFluido(canvas, corPapel, opcoes = {}) {
   const progSplat = programa(FS_SPLAT);
   const progDesbotar = programa(FS_DESBOTAR);
   const progExibir = programa(FS_EXIBIR);
+  const progSopro = programa(FS_SOPRO); // cosmos: espalhar luz
+  const progDifuso = programa(FS_DIFUSO); // cosmos: assentar a luz
 
   // Programa das estrelas: usa um vertex shader próprio (não o VS_TELA),
   // então tem seu próprio link (com locations via layout no GLSL).
@@ -940,6 +943,50 @@ export function criarFluido(canvas, corPapel, opcoes = {}) {
     splat(velocidade, x, y, [FORCA_GOTA, 0, 0], raioPx * 1.6, 2);
   }
 
+  // -------------------------------------------------------------------------
+  // MOTOR COSMOS — pintura de luz (sem solver de Navier-Stokes)
+  //
+  // A correção do v4: o cosmos NÃO é "a água no espelho". Ele é um pintor de
+  // luz por acúmulo. Reusa o MESMO buffer (a textura de densidade) e o mesmo
+  // render aditivo, mas as operações abaixo escrevem luz direto no buffer —
+  // sem advecção/pressão/vorticidade. A tela fica PARADA (quem chama nem roda
+  // o passo da física no cosmos); só muda quando estas funções são chamadas.
+  // -------------------------------------------------------------------------
+
+  /** POEIRA — deposita um sopro macio de LUZ (aditivo, baixa intensidade)
+   *  no buffer. Passar várias vezes acumula em camadas e clareia. */
+  function poeira(x, y, raioPx, densidade) {
+    splat(tinta, x, y, densidade, raioPx, 1);
+  }
+
+  /** SOPRO — espalha a luz já depositada na direção (mx,my), localmente. */
+  function soprar(x, y, mx, my, raioPx, forca) {
+    gl.bindVertexArray(vao);
+    gl.useProgram(progSopro.p);
+    gl.uniform1i(progSopro.u.uAlvo, ligarTextura(0, tinta.lê.tex));
+    const [u, v] = uv(x, y);
+    gl.uniform2f(progSopro.u.uPonto, u, v);
+    // my invertido: eixo y da página aponta para baixo, o da textura p/ cima.
+    gl.uniform2f(progSopro.u.uDir, mx, -my);
+    gl.uniform1f(progSopro.u.uRaio, raio2(raioPx));
+    gl.uniform1f(progSopro.u.uProporcao, proporcao);
+    gl.uniform1f(progSopro.u.uForca, forca);
+    passada(progSopro, tinta.escreve);
+    tinta.trocar();
+  }
+
+  /** ASSENTAR — uma difusão levíssima da luz (média dos vizinhos), aplicada
+   *  pós-gesto e com fim definido (quem chama decai a quantidade até zero). */
+  function assentarLuz(quantidade) {
+    gl.bindVertexArray(vao);
+    gl.useProgram(progDifuso.p);
+    gl.uniform1i(progDifuso.u.uAlvo, ligarTextura(0, tinta.lê.tex));
+    gl.uniform2f(progDifuso.u.uTexel, texelTinta[0], texelTinta[1]);
+    gl.uniform1f(progDifuso.u.uQtd, quantidade);
+    passada(progDifuso, tinta.escreve);
+    tinta.trocar();
+  }
+
   /**
    * Estilete: a água sob o dedo ADOTA a velocidade do gesto (modo 3 do
    * splat). A física faz o resto: a correnteza se propaga, ganha momentum,
@@ -983,8 +1030,6 @@ export function criarFluido(canvas, corPapel, opcoes = {}) {
     gl.uniform3f(progExibir.u.uFundo, fundo[0], fundo[1], fundo[2]);
     gl.uniform1i(progExibir.u.uModo, modoRender);
     gl.uniform1f(progExibir.u.uBrilho, brilhoCosmos);
-    gl.uniform1f(progExibir.u.uTempo, tempo || 0);
-    gl.uniform1f(progExibir.u.uAspecto, proporcao);
     passada(progExibir, alvo);
 
     // 2. As estrelas (só no cosmos): pontos fixos, somando luz por cima.
@@ -1096,6 +1141,9 @@ export function criarFluido(canvas, corPapel, opcoes = {}) {
     pingar,
     pingarAgua,
     mexer,
+    poeira,
+    soprar,
+    assentarLuz,
     desbotar,
     exibir,
     definirFundo,
