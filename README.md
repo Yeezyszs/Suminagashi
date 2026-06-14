@@ -89,26 +89,34 @@ do suminagashi clássico.
 Na barra: 10 tintas + água, e **segurar um swatch (~450ms)** abre um seletor
 para personalizá-lo (persiste no navegador).
 
-## Dois modos: água e cosmos (o mesmo fluido, no espelho)
+## Dois modos: água (fluido) e cosmos (pintura de luz)
 
-O motor de fluido é UM só — a mesma física (advecção, vorticidade, pressão).
-O que muda entre os modos é só como a densidade do fluido vira pixel:
+São dois motores irmãos sob a mesma casca (mesma estante, mesmo guardar,
+mesmo tokonoma, mesmo batismo). **A alma é a mesma — criar com o gesto —, os
+materiais são opostos:**
 
-- **água** — render **subtrativo** (Beer-Lambert): a tinta absorve a luz do
-  papel washi. `cor = papel · exp(−densidade)`.
-- **cosmos** — render **aditivo/emissivo**: a mesma densidade agora *emite*
-  luz sobre o vazio profundo. `cor = vazio + (1 − exp(−densidade))`. Duas
-  nebulosas sobrepostas somam luz; uma gota vira nuvem de gás, o estilete
-  vira braço de galáxia. A tela começa um **vazio preto** — você monta o seu
-  universo à mão: o pincel **✦ estrelas** semeia pontos de luz onde você
-  arrasta (não fluem com o gás), as cores pintam nebulosas, o estilete as
-  gira. O ciclo de luz se inverte de sentido: de madrugada o cosmos brilha
-  de verdade; ao meio-dia, fica lavado.
+- **água** — tinta escura que se ESPALHA sobre o claro (subtrativo). É a
+  simulação de fluido (Navier-Stokes) descrita acima.
+- **cosmos** — luz clara que se ACUMULA sobre o escuro (aditivo). **Não é
+  fluido**: é um motor de *pintura de luz*. Uma tela preta, parada como um
+  quadro, onde os pincéis depositam, concentram, espalham e apagam luz. Nada
+  roda continuamente — a tela só muda quando você pinta (mais um curto
+  "assentar" da luz recém-posta).
 
-Alterna-se pelo símbolo ◐/✦ nas ferramentas; o modo persiste no navegador e
-trocar não apaga a obra (é o mesmo fluido, olhado no espelho). Cada modo tem
-sua paleta (pigmentos vs. cores estelares) — ver `js/modos.js`, o único
-lugar onde os modos diferem.
+Os pincéis do cosmos:
+- **poeira** (as cores) — arrastar deposita névoa de luz que *acumula em
+  camadas*: passar de novo no mesmo lugar clareia, como impasto.
+- **estrela** — você **não pinga** uma estrela. Onde a poeira acumula além de
+  um limiar, a luz *floresce* numa estrela (núcleo + halo), herdando a cor.
+  A estrela é consequência de pintar luz, não um clique.
+- **∿ sopro** — esfumaça a luz já pintada na direção do gesto (véus, caudas).
+- **○ vazio** — apaga luz, esculpe espaço negativo.
+
+A tela é quieta: sem o usuário, só as estrelas cintilam de leve. De madrugada
+o cosmos brilha de verdade; ao meio-dia, fica lavado (segue o ciclo de luz).
+
+> Nota: o BRIEF-v4 dizia "cosmos = o mesmo fluido no espelho". Estava errado e
+> rendeu um céu estático e genérico. O v5 corrigiu: cosmos é pintura de luz.
 
 ## O batismo (nomes e haiku locais)
 

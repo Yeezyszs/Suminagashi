@@ -3,7 +3,7 @@
 Registro do que já foi construído, em que pé está cada coisa e o que vem a
 seguir. Documento vivo: atualizar a cada marco.
 
-_Última atualização: 14/06/2026 (v4) — branch `main`_
+_Última atualização: 14/06/2026 (v5) — branch `main`_
 
 ---
 
@@ -45,7 +45,8 @@ tom educacional. UI mínima e em português.
 | 11 | (luz) | **v3 luz** | Sistema de atmosfera de duas camadas: ciclo do relógio + tom da fundação. |
 | 12 | (tokonoma) | **v3 tokonoma** | Redesenho completo: estados ocioso/pintando/estante, sequência de guardar (hanko + pergaminho), estante de obras. |
 | 13 | (qualidade) | **Export 4K** | Resolução adaptativa, captura nativa, IndexedDB, export na proporção da tela. |
-| 14 | (v4) | **Modos + Cosmos + Batismo** | Organização de modos (água/cosmos como config), render emissivo, estrelas, alternância; nome e haiku locais determinísticos. |
+| 14 | (v4) | **Modos + Cosmos + Batismo** | Organização de modos (água/cosmos como config), render emissivo, alternância; nome e haiku locais determinísticos. |
+| 15 | (v5) | **Cosmos = pintura de luz** | Redesenho: cosmos deixa de ser "fluido no espelho" e vira motor de acúmulo de luz (poeira→estrela por limiar, sopro, vazio, assentar). |
 
 ---
 
@@ -104,10 +105,12 @@ quadro:
 Azul + amarelo → verde, como pigmento de verdade. A atmosfera (luz da
 sala) é um overlay DOM por cima de tudo, derivada da hora + tom da fundação.
 
-**Dois modos, o mesmo fluido:** a simulação é idêntica nos dois; só a leitura
-final (densidade→pixel) muda — água absorve (papel·exp(−d)), cosmos emite
-(vazio + (1−exp(−d))). Os modos vivem em `modos.js` (config); o motor é
-agnóstico. Cosmos tem o gesto extra "estrela" (camada gl.POINTS aditiva).
+**Dois motores irmãos:** a ÁGUA é o solver de fluido acima. O COSMOS NÃO é
+fluido — é pintura de luz (correção do v4): um buffer de acúmulo onde a poeira
+(cores) deposita luz aditiva que acumula em camadas; estrelas FLORESCEM onde o
+acúmulo cruza um limiar (grade no main); sopro espalha, vazio apaga. A tela
+fica parada (o loop só roda o solver em água), com cintilação + um "assentar"
+pós-gesto que decai e para. Render: tonemap (vazio+(1−exp(−luz))) + estrelas.
 
 Gestos viram *splats* gaussianos: a **gota** pinta corante + empurra a água
 em anel (abre espaço); a **água** (cor do papel) só empurra — anéis
