@@ -240,7 +240,10 @@ body.pintando #ferramentas {
   gap: 0.9rem;
 }
 
-#ferramentas button {
+/* Só os botões de AÇÃO (lavar/guardar, dentro de .acoes). NÃO usar
+   "#ferramentas button" aqui: as gotas de cor também são <button> e a
+   especificidade do ID apagaria o fundo colorido delas. */
+.acoes button {
   border: none;
   background: none;
   font-size: 0.8rem;
@@ -251,7 +254,7 @@ body.pintando #ferramentas {
   padding: 0.2rem 0.3rem;
 }
 
-#ferramentas button:hover {
+.acoes button:hover {
   opacity: 1;
 }
 
