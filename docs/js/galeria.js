@@ -284,6 +284,10 @@ function criarCena(renderer) {
 
   // --- tokonoma (nicho de honra) -----------------------------------------
   cena.add(criarTokonoma(matMadeira, matMadeiraEsc, matParede));
+  // ...vestido: um arranjo (vaso + galho) na plataforma, sob o pergaminho.
+  const arranjo = criarArranjoTokonoma();
+  arranjo.position.set(-0.05, 0.1, -2.7);
+  cena.add(arranjo);
 
   // Devolve a cena + os materiais que a Fase 4 reusa (shoji p/ a luz por
   // hora; madeiras p/ as molduras dos kakemono).
@@ -487,6 +491,59 @@ function criarTokonoma(matMadeira, matMadeiraEsc, matParede) {
   viga.position.set(cx, aAb + 0.01, zParede + 0.07);
   viga.castShadow = true;
   grupo.add(viga);
+
+  return grupo;
+}
+
+/**
+ * Arranjo do tokonoma: um vaso de cerâmica escura com um galho (ikebana
+ * mínima, à moda do inverno — pouca folha, muito vazio). Fica na plataforma
+ * do nicho, ao lado e abaixo do pergaminho da fundação.
+ *
+ * PREPARAÇÃO (feature futura): este é um arranjo-PADRÃO provisório. A ideia é
+ * que o usuário possa, mais adiante, "cultivar" o próprio bonsai/ikebana —
+ * então isto é uma VAGA DE HONRA já montada (vaso + suporte), com um galho
+ * genérico que será trocado pelo arranjo do usuário. Nada aqui é definitivo.
+ */
+function criarArranjoTokonoma() {
+  const grupo = new THREE.Group();
+
+  // Vaso: cerâmica escura fosca, ligeiramente cônica.
+  const matCeramica = new THREE.MeshStandardMaterial({ color: 0x3c3a3b, roughness: 0.6, metalness: 0 });
+  const vaso = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.075, 0.28, 18), matCeramica);
+  vaso.position.y = 0.14;
+  vaso.castShadow = true;
+  vaso.receiveShadow = true;
+  grupo.add(vaso);
+
+  // Galhos: cilindros finos orientados de A→B (madeira escura).
+  const matGalho = new THREE.MeshStandardMaterial({ color: 0x4b3a2a, roughness: 0.9, metalness: 0 });
+  const galho = (ax, ay, az, bx, by, bz, r) => {
+    const a = new THREE.Vector3(ax, ay, az);
+    const b = new THREE.Vector3(bx, by, bz);
+    const comp = a.distanceTo(b);
+    const m = new THREE.Mesh(new THREE.CylinderGeometry(r * 0.7, r, comp, 6), matGalho);
+    m.position.copy(a).lerp(b, 0.5);
+    m.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), b.clone().sub(a).normalize());
+    m.castShadow = true;
+    grupo.add(m);
+  };
+  galho(0, 0.27, 0, -0.14, 0.64, -0.04, 0.012); // tronco subindo e pendendo à esquerda
+  galho(-0.07, 0.46, -0.02, 0.05, 0.68, 0.05, 0.008); // ramo secundário à direita
+
+  // Poucas folhas: planos verdes pequenos (o toque de natureza).
+  const matFolha = new THREE.MeshStandardMaterial({
+    color: 0x5f7048, roughness: 0.85, metalness: 0, side: THREE.DoubleSide,
+  });
+  const folha = (x, y, z, s, ry) => {
+    const f = new THREE.Mesh(new THREE.PlaneGeometry(s, s * 1.9), matFolha);
+    f.position.set(x, y, z);
+    f.rotation.set(-0.4, ry, 0.35);
+    grupo.add(f);
+  };
+  folha(-0.14, 0.62, -0.04, 0.06, 0.4);
+  folha(0.05, 0.66, 0.05, 0.05, -0.6);
+  folha(-0.05, 0.52, 0.0, 0.045, 1.2);
 
   return grupo;
 }
