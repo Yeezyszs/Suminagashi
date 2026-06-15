@@ -17,7 +17,7 @@ import {
   comporAtmosfera,
   corDaAtmosfera,
 } from './luz.js';
-import { gerarNome, gerarHaiku, sementeDaObra, horaFormatada } from './estante.js';
+import { gerarNome, gerarHaiku, gerarPoema, sementeDaObra, horaFormatada, hash } from './estante.js';
 import { MODOS, hexParaRgb } from './modos.js';
 
 // ---------------------------------------------------------------------------
@@ -935,12 +935,16 @@ const rotuloObra = document.getElementById('rotulo-obra');
 const rotuloNome = document.getElementById('rotulo-nome');
 const rotuloHaiku = document.getElementById('rotulo-haiku');
 const galeriaVazia = document.getElementById('galeria-vazia');
+const focoObraEl = document.getElementById('foco-obra');
+const focoPoemaJa = document.getElementById('foco-poema-ja');
+const focoPoemaPt = document.getElementById('foco-poema-pt');
 
 let galeria = null; // instância Three.js (criada sob demanda)
 let navGaleria = null;
 let galeriaAberta = false;
 let loopGaleria = null;
 let anteriorGaleria = null;
+let focoIdAtual = null; // id da obra focada (evita recompor o poema todo quadro)
 
 /** Abre o templo: carrega o Three.js sob demanda (o ateliê segue leve),
  *  monta a cena uma vez, pendura as obras da coleção e pausa a água. */
@@ -961,6 +965,7 @@ async function abrirGaleria() {
   const lista = await Promise.all(
     obras.map(async (o) => ({
       id: o.id,
+      modo: o.modo, // 'agua' | 'cosmos' — define o léxico do poema da galeria
       nome: o.nome,
       haiku: o.haiku,
       ehFundacao: o.ehFundacao,
@@ -982,6 +987,10 @@ function fecharGaleria() {
   galeriaAberta = false;
   estanteAberta = false;
   if (loopGaleria) cancelAnimationFrame(loopGaleria);
+  if (navGaleria) navGaleria.sairFoco();
+  focoIdAtual = null;
+  focoObraEl.classList.remove('visivel');
+  focoObraEl.hidden = true;
   canvasGaleria.hidden = true;
   galeriaUI.hidden = true;
   rotuloObra.classList.remove('visivel');
@@ -995,24 +1004,57 @@ function quadroGaleria(t) {
   galeria.atualizarLuz(agoraParaLuz(), dt); // mesma hora do ateliê (?hora)
   galeria.render();
 
-  // Rótulo: nome + haiku da obra em foco (perto + olhando p/ ela).
-  const foco = galeria.obraEmFoco();
-  if (foco) {
-    rotuloNome.textContent = (foco.ehFundacao ? '元 ' : '') + foco.nome;
-    rotuloHaiku.innerHTML = foco.haiku ? foco.haiku.join('<br>') : '';
-    rotuloObra.hidden = false;
-    rotuloObra.classList.add('visivel');
-  } else {
+  // Em FOCO (obra clicada): mostra o poema japonês + a janelinha de tradução
+  // logo abaixo do quadro; esconde o rótulo flutuante.
+  const obraFoco = navGaleria.focoAtual();
+  if (obraFoco) {
+    if (focoIdAtual !== obraFoco.id) {
+      focoIdAtual = obraFoco.id;
+      const m = MODOS[obraFoco.modo] || MODOS.agua;
+      const poema = gerarPoema(m, hash(obraFoco.id));
+      focoPoemaJa.innerHTML = poema.ja.join('<br>');
+      focoPoemaPt.innerHTML = poema.pt.join('<br>');
+    }
+    focoObraEl.hidden = false;
+    focoObraEl.classList.add('visivel');
     rotuloObra.classList.remove('visivel');
+  } else {
+    if (focoIdAtual !== null) {
+      focoIdAtual = null;
+      focoObraEl.classList.remove('visivel');
+      focoObraEl.hidden = true;
+    }
+    // Rótulo: nome + haiku da obra em foco de proximidade (perto + olhando).
+    const foco = galeria.obraEmFoco();
+    if (foco) {
+      rotuloNome.textContent = (foco.ehFundacao ? '元 ' : '') + foco.nome;
+      rotuloHaiku.innerHTML = foco.haiku ? foco.haiku.join('<br>') : '';
+      rotuloObra.hidden = false;
+      rotuloObra.classList.add('visivel');
+    } else {
+      rotuloObra.classList.remove('visivel');
+    }
   }
 
   loopGaleria = requestAnimationFrame(quadroGaleria);
 }
 
 document.getElementById('voltar-atelie').addEventListener('click', fecharGaleria);
+// Afastar do quadro (✕ da janelinha): sai do foco, volta a caminhar.
+document.getElementById('foco-fechar').addEventListener('click', () => {
+  if (navGaleria) navGaleria.sairFoco();
+});
 
 // Teclado: setas navegam, Esc fecha.
 window.addEventListener('keydown', (e) => {
+  // No templo (3D): Esc primeiro sai do foco; sem foco, volta ao ateliê.
+  if (galeriaAberta) {
+    if (e.key === 'Escape') {
+      if (navGaleria && navGaleria.focoAtual()) navGaleria.sairFoco();
+      else fecharGaleria();
+    }
+    return;
+  }
   if (!estanteAberta) return;
   if (e.key === 'ArrowLeft') navegar(-1);
   else if (e.key === 'ArrowRight') navegar(1);

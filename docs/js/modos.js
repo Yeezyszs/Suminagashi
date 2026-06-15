@@ -79,6 +79,27 @@ export const MODO_AGUA = {
       b: ['um fio {cor} se abre', 'a {cor} encontra a corrente', 'desliza o {cor} sem pressa', '{cor} dobra na água'],
       c: ['e a {periodo} se cala', 'antes que a luz volte', 'a bacia respira', 'nada mais se move'],
     },
+    // Poema BILÍNGUE para a galeria 3D: o quadro exibe o japonês (caligrafia
+    // vertical) e a "janelinha" mostra a tradução PT — par a par, para que a
+    // tradução seja FIEL ao que está escrito (não é o haiku PT acima). Três
+    // versos (abertura · meio · fecho), escolhidos por semente da obra.
+    poema: {
+      abertura: [
+        { ja: '水は静かに', pt: 'a água, quieta' },
+        { ja: '墨ひとしずく', pt: 'uma gota de sumi' },
+        { ja: '霧が流れて', pt: 'a névoa escorre' },
+      ],
+      meio: [
+        { ja: '色が混ざり合う', pt: 'as cores se enlaçam' },
+        { ja: '渦を描いて', pt: 'desenhando um redemoinho' },
+        { ja: '紙にひろがる', pt: 'espalha-se no papel' },
+      ],
+      fecho: [
+        { ja: '夜明けの前に', pt: 'antes do amanhecer' },
+        { ja: '何も動かず', pt: 'nada se move' },
+        { ja: 'ただ静けさ', pt: 'apenas o silêncio' },
+      ],
+    },
   },
 };
 
@@ -132,6 +153,24 @@ export const MODO_COSMOS = {
       a: ['o vazio respira', 'silêncio sem fundo', 'a noite sem chão', 'poeira de luz'],
       b: ['nasce um fio {cor}', 'a {cor} se acende devagar', 'gira o gás {cor}', 'uma nuvem {cor} se abre'],
       c: ['na {periodo} sem fim', 'e uma estrela acende', 'longe de toda manhã', 'antes do tempo existir'],
+    },
+    // Poema bilíngue (ver MODO_AGUA): o vazio e a luz, japonês + tradução.
+    poema: {
+      abertura: [
+        { ja: '虚空が息づく', pt: 'o vazio respira' },
+        { ja: '光のちりが', pt: 'poeira de luz' },
+        { ja: '闇のふところ', pt: 'o seio da treva' },
+      ],
+      meio: [
+        { ja: '星が生まれて', pt: 'nasce uma estrela' },
+        { ja: '渦巻く銀河', pt: 'galáxia em espiral' },
+        { ja: 'ひかりを集め', pt: 'reunindo a luz' },
+      ],
+      fecho: [
+        { ja: '時の彼方で', pt: 'para além do tempo' },
+        { ja: '果てしなく', pt: 'sem fim' },
+        { ja: '夜のさなかに', pt: 'em pleno meio da noite' },
+      ],
     },
   },
 };

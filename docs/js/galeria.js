@@ -282,6 +282,9 @@ function criarKakemono(textura, matMadeira, matMadeiraEsc, destaque) {
     r.castShadow = true;
     grupo.add(r);
   }
+  // Guarda o tamanho da OBRA (sem moldura) — o foco usa a altura para
+  // calcular a que distância a câmera a enquadra na tela.
+  grupo.userData.tamanho = { w, h };
   return grupo;
 }
 
@@ -555,7 +558,15 @@ export function criarGaleria(canvas) {
       km.position.set(slot.pos[0], slot.pos[1], slot.pos[2]);
       km.rotation.y = slot.ry;
       grupoObras.add(km);
-      penduradas.push({ dados: o, pos: new THREE.Vector3(slot.pos[0], slot.pos[1], slot.pos[2]) });
+      // Dados que o clique-para-focar lê (subindo a árvore do mesh atingido):
+      // a obra, o centro no mundo e a NORMAL da parede (para onde a obra
+      // "olha"), além do tamanho já guardado no userData do kakemono.
+      const centro = new THREE.Vector3(slot.pos[0], slot.pos[1], slot.pos[2]);
+      const normal = new THREE.Vector3(Math.sin(slot.ry), 0, Math.cos(slot.ry));
+      km.userData.obra = o;
+      km.userData.centro = centro;
+      km.userData.normal = normal;
+      penduradas.push({ dados: o, pos: centro.clone() });
     }
   }
 
@@ -668,8 +679,15 @@ export function criarGaleria(canvas) {
 //
 // Dois gestos só, iguais no mouse e no toque:
 //   - ARRASTAR  → olhar ao redor (gira yaw/pitch; pitch limitado, sem rolar)
-//   - TOCAR/CLICAR (sem arrastar) → caminhar suavemente ATÉ aquele ponto
-//     (raycast no chão/parede/obra). Clicar numa obra = aproximar-se dela.
+//   - TOCAR/CLICAR (sem arrastar) → se for numa OBRA, FOCA nela (aproxima até
+//     quase tela cheia, de frente, com o poema embaixo); senão, caminha
+//     suavemente até aquele ponto (raycast no chão/parede).
+//
+// Em FOCO, a vista trava de frente para a obra e o gesto vira ZOOM:
+//   - roda do mouse (desktop) ou pinça de dois dedos (celular) aproxima/afasta.
+// Sair do foco (botão 墨 / Esc) devolve o controle de caminhar e olhar de onde
+// a câmera parou — sem teleporte.
+//
 // Não há WASD nem corrida: é uma "caminhada assistida", mais quieta e sem
 // balanço de câmera (a metáfora do templo pede contemplação, não FPS).
 // ---------------------------------------------------------------------------
@@ -677,14 +695,25 @@ export function criarGaleria(canvas) {
 const ALTURA_OLHO = 1.5; // altura dos olhos (m)
 const SENS_OLHAR = 0.0010; // rad por pixel arrastado
 const PITCH_LIMITE = 0.5; // ~28°: não dá para olhar o teto/chão por inteiro
-const LIMIAR_ARRASTE = 6; // px: abaixo disso, é um toque (caminhar)
+const LIMIAR_ARRASTE = 6; // px: abaixo disso, é um toque (caminhar/focar)
 const VEL_CAMINHAR = 2.2; // suavização do deslocamento (maior = mais rápido)
 const DIST_PARADA = 1.9; // para a esta distância do ponto clicado (m)
 const MARGEM_PAREDE = 0.8; // não encosta nas paredes
 
+// Foco numa obra
+const VEL_FOCO = 5; // suavização da aproximação ao focar (maior = mais rápido)
+const FOCO_FILL = 0.66; // fração da ALTURA da tela que a obra ocupa ao focar
+const FOCO_BOOM = 0.16; // abaixa a câmera (sobe a obra na tela; sobra p/ o poema)
+const FOCO_MIN = 0.45; // zoom máximo de aproximação (m)
+const FOCO_MAX = 2.4; // zoom máximo de afastamento (m)
+
+const trava = (v, a, b) => Math.max(a, Math.min(b, v));
+
 /**
- * Instala a navegação num canvas sobre uma galeria. Retorna { atualizar(dt) }
- * — chamar uma vez por quadro antes de render.
+ * Instala a navegação num canvas sobre uma galeria. Retorna
+ * { atualizar(dt), focoAtual(), sairFoco() } — atualizar() roda uma vez por
+ * quadro antes de render; focoAtual() devolve os dados da obra focada (ou
+ * null) p/ a camada 2D montar o poema; sairFoco() desfaz o foco.
  */
 export function instalarNavegacao(canvas, galeria, reduzMovimento) {
   const { camera } = galeria;
@@ -696,43 +725,151 @@ export function instalarNavegacao(canvas, galeria, reduzMovimento) {
   const alvo = pos.clone(); // destino da caminhada
   const raycaster = new THREE.Raycaster();
   const dir = new THREE.Vector3();
+  const _v = new THREE.Vector3();
 
-  let ponteiro = null;
+  // --- estado de FOCO ------------------------------------------------------
+  let focado = false;
+  let focoObra = null;
+  const focoCentro = new THREE.Vector3();
+  const focoNormal = new THREE.Vector3();
+  let focoH = 0.5; // altura da obra (m)
+  let distFoco = 0.9; // distância câmera→obra em foco (zoom)
+
+  // --- ponteiros (1 = arrastar/tocar; 2 = pinça p/ zoom em foco) -----------
+  const ponteiros = new Map(); // id → {x, y}
+  let idArraste = null;
   let ultimoX = 0;
   let ultimoY = 0;
   let andouX = 0;
   let andouY = 0;
+  let distPinca = 0;
+
+  function distanciaPonteiros() {
+    const v = [...ponteiros.values()];
+    if (v.length < 2) return 0;
+    return Math.hypot(v[0].x - v[1].x, v[0].y - v[1].y);
+  }
 
   canvas.addEventListener('pointerdown', (e) => {
-    if (ponteiro !== null) return;
-    ponteiro = e.pointerId;
+    ponteiros.set(e.pointerId, { x: e.clientX, y: e.clientY });
     canvas.setPointerCapture(e.pointerId);
-    ultimoX = e.clientX;
-    ultimoY = e.clientY;
-    andouX = andouY = 0;
+    if (idArraste === null) {
+      idArraste = e.pointerId;
+      ultimoX = e.clientX;
+      ultimoY = e.clientY;
+      andouX = andouY = 0;
+    }
+    if (ponteiros.size === 2) distPinca = distanciaPonteiros();
   });
 
   canvas.addEventListener('pointermove', (e) => {
-    if (e.pointerId !== ponteiro) return;
+    const p = ponteiros.get(e.pointerId);
+    if (!p) return;
+    p.x = e.clientX;
+    p.y = e.clientY;
+
+    // Dois dedos: em foco, vira ZOOM (pinça). Fora de foco, ignora.
+    if (ponteiros.size >= 2) {
+      if (focado) {
+        const d = distanciaPonteiros();
+        if (distPinca > 0 && d > 0) distFoco = trava(distFoco * (distPinca / d), FOCO_MIN, FOCO_MAX);
+        distPinca = d;
+      }
+      return;
+    }
+
+    if (e.pointerId !== idArraste) return;
     const dx = e.clientX - ultimoX;
     const dy = e.clientY - ultimoY;
     ultimoX = e.clientX;
     ultimoY = e.clientY;
     andouX += Math.abs(dx);
     andouY += Math.abs(dy);
+    if (focado) return; // em foco a vista trava de frente para a obra
     // Arrastar gira a vista (resposta imediata, sem suavização — natural).
     yaw -= dx * SENS_OLHAR;
-    pitch = Math.max(-PITCH_LIMITE, Math.min(PITCH_LIMITE, pitch + dy * SENS_OLHAR));
+    pitch = trava(pitch + dy * SENS_OLHAR, -PITCH_LIMITE, PITCH_LIMITE);
   });
 
   function terminar(e) {
-    if (e.pointerId !== ponteiro) return;
-    // Foi um TOQUE (quase sem mover) → caminhar até o ponto apontado.
-    if (andouX + andouY < LIMIAR_ARRASTE) caminharPara(e);
-    ponteiro = null;
+    if (!ponteiros.has(e.pointerId)) return;
+    ponteiros.delete(e.pointerId);
+    if (ponteiros.size < 2) distPinca = 0;
+    if (e.pointerId !== idArraste) return;
+    idArraste = null;
+
+    // Foi um TOQUE (quase sem mover) e sem outro dedo na tela.
+    if (andouX + andouY < LIMIAR_ARRASTE && ponteiros.size === 0 && !focado) {
+      const grupo = obraNoPonto(e);
+      if (grupo) focar(grupo);
+      else caminharPara(e);
+    }
+    // Se ainda há um dedo (fim de pinça), ele reassume o arraste.
+    if (ponteiros.size >= 1) {
+      const [id, p] = [...ponteiros][0];
+      idArraste = id;
+      ultimoX = p.x;
+      ultimoY = p.y;
+      andouX = andouY = 0;
+    }
   }
   canvas.addEventListener('pointerup', terminar);
   canvas.addEventListener('pointercancel', terminar);
+
+  // Roda do mouse: zoom enquanto em foco (desktop).
+  canvas.addEventListener(
+    'wheel',
+    (e) => {
+      if (!focado) return;
+      e.preventDefault();
+      distFoco = trava(distFoco + e.deltaY * 0.0016 * distFoco, FOCO_MIN, FOCO_MAX);
+    },
+    { passive: false }
+  );
+
+  /** Sobe a árvore do mesh atingido até achar o kakemono (userData.obra). */
+  function obraNoPonto(e) {
+    const r = canvas.getBoundingClientRect();
+    const ndc = new THREE.Vector2(
+      ((e.clientX - r.left) / r.width) * 2 - 1,
+      -((e.clientY - r.top) / r.height) * 2 + 1
+    );
+    raycaster.setFromCamera(ndc, camera);
+    const hits = raycaster.intersectObjects(galeria.cena.children, true);
+    for (const h of hits) {
+      let o = h.object;
+      while (o) {
+        if (o.userData && o.userData.obra) return o;
+        o = o.parent;
+      }
+    }
+    return null;
+  }
+
+  /** Entra em FOCO numa obra: trava de frente para ela e calcula a distância
+   *  que a enquadra ocupando ~FOCO_FILL da altura da tela. */
+  function focar(grupo) {
+    focado = true;
+    focoObra = grupo.userData.obra;
+    focoCentro.copy(grupo.userData.centro);
+    focoNormal.copy(grupo.userData.normal);
+    focoH = (grupo.userData.tamanho && grupo.userData.tamanho.h) || 0.5;
+    const fov = (camera.fov * Math.PI) / 180;
+    distFoco = trava(focoH / (2 * FOCO_FILL * Math.tan(fov / 2)), FOCO_MIN, FOCO_MAX);
+  }
+
+  /** Sai do foco devolvendo o controle de caminhar/olhar de onde a câmera
+   *  ficou (sem teleporte): reconstrói yaw/pitch a partir da orientação atual. */
+  function sairFoco() {
+    if (!focado) return;
+    focado = false;
+    focoObra = null;
+    pos.set(camera.position.x, ALTURA_OLHO, camera.position.z);
+    alvo.copy(pos);
+    camera.getWorldDirection(dir);
+    yaw = Math.atan2(dir.x, -dir.z);
+    pitch = trava(Math.asin(trava(dir.y, -1, 1)), -PITCH_LIMITE, PITCH_LIMITE);
+  }
 
   /** Raycast do ponto clicado para a cena; define o destino da caminhada. */
   function caminharPara(e) {
@@ -747,7 +884,7 @@ export function instalarNavegacao(canvas, galeria, reduzMovimento) {
     const p = hits[0].point;
 
     // Direção horizontal câmera→ponto; paramos DIST_PARADA antes do alvo
-    // (assim clicar numa parede/obra aproxima sem atravessar).
+    // (assim clicar numa parede aproxima sem atravessar).
     const d = new THREE.Vector3(p.x - pos.x, 0, p.z - pos.z);
     const dist = d.length();
     if (dist > 0.001) d.divideScalar(dist);
@@ -760,6 +897,18 @@ export function instalarNavegacao(canvas, galeria, reduzMovimento) {
   }
 
   function atualizar(dt) {
+    if (focado) {
+      // Câmera de frente para a obra, à distância do zoom, levemente
+      // ABAIXADA (FOCO_BOOM) para a obra subir na tela e sobrar espaço
+      // embaixo para o poema. A vista é horizontal e perpendicular ao
+      // quadro (sem keystone): olha para o ponto na MESMA altura da câmera.
+      const k = reduzMovimento ? 1 : Math.min(1, dt * VEL_FOCO);
+      _v.copy(focoNormal).multiplyScalar(distFoco).add(focoCentro);
+      _v.y -= FOCO_BOOM * distFoco;
+      camera.position.lerp(_v, k);
+      camera.lookAt(focoCentro.x, camera.position.y, focoCentro.z);
+      return;
+    }
     // Caminhada suave (ou imediata sob prefers-reduced-motion).
     const k = reduzMovimento ? 1 : Math.min(1, dt * VEL_CAMINHAR);
     pos.lerp(alvo, k);
@@ -773,5 +922,5 @@ export function instalarNavegacao(canvas, galeria, reduzMovimento) {
     camera.lookAt(pos.x + dir.x, pos.y + dir.y, pos.z + dir.z);
   }
 
-  return { atualizar };
+  return { atualizar, focoAtual: () => focoObra, sairFoco };
 }

@@ -108,6 +108,26 @@ export function gerarHaiku(modo, date, calidez, semente) {
   return [preencher(escolher(rng, h.a)), preencher(escolher(rng, h.b)), preencher(escolher(rng, h.c))];
 }
 
+/**
+ * Gera o POEMA BILÍNGUE da obra para a galeria 3D: três versos (abertura ·
+ * meio · fecho) escolhidos de pools PARES {ja, pt} — assim a tradução PT é
+ * sempre fiel ao japonês exibido. Determinístico pela semente (hash do id da
+ * obra): a mesma obra mostra sempre o mesmo poema.
+ *
+ * @param {object} modo - configuração do modo (com .lexico.poema)
+ * @param {number} semente
+ * @returns {{ ja: string[], pt: string[] }}
+ */
+export function gerarPoema(modo, semente) {
+  const p = modo.lexico.poema;
+  if (!p) return { ja: [], pt: [] };
+  const rng = mulberry32((semente ^ 0x85ebca6b) >>> 0);
+  const a = escolher(rng, p.abertura);
+  const b = escolher(rng, p.meio);
+  const c = escolher(rng, p.fecho);
+  return { ja: [a.ja, b.ja, c.ja], pt: [a.pt, b.pt, c.pt] };
+}
+
 /** Hora de criação para os metadados: "HH:MM". */
 export function horaFormatada(timestamp) {
   const d = new Date(timestamp);
