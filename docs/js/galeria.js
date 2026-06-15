@@ -423,7 +423,7 @@ export function criarGaleria(canvas) {
 // ---------------------------------------------------------------------------
 
 const ALTURA_OLHO = 1.5; // altura dos olhos (m)
-const SENS_OLHAR = 0.0042; // rad por pixel arrastado
+const SENS_OLHAR = 0.0010; // rad por pixel arrastado
 const PITCH_LIMITE = 0.5; // ~28°: não dá para olhar o teto/chão por inteiro
 const LIMIAR_ARRASTE = 6; // px: abaixo disso, é um toque (caminhar)
 const VEL_CAMINHAR = 2.2; // suavização do deslocamento (maior = mais rápido)
@@ -470,7 +470,7 @@ export function instalarNavegacao(canvas, galeria, reduzMovimento) {
     andouY += Math.abs(dy);
     // Arrastar gira a vista (resposta imediata, sem suavização — natural).
     yaw -= dx * SENS_OLHAR;
-    pitch = Math.max(-PITCH_LIMITE, Math.min(PITCH_LIMITE, pitch - dy * SENS_OLHAR));
+    pitch = Math.max(-PITCH_LIMITE, Math.min(PITCH_LIMITE, pitch + dy * SENS_OLHAR));
   });
 
   function terminar(e) {
