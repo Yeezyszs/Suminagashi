@@ -3,19 +3,30 @@
 Registro do que já foi construído, em que pé está cada coisa e o que vem a
 seguir. Documento vivo: atualizar a cada marco.
 
-_Última atualização: 14/06/2026 (v5) — branch `main`_
+_Última atualização: 15/06/2026 (v8) — branch `main`_
 
 ---
 
 ## Onde estamos
 
-A **v1 (motor)**, **v2 (pigmento)**, **v3 (tokonoma)** e **v4 (modos +
-cosmos + batismo)** estão funcionais. O motor de marbling geométrico do brief original foi substituído
+A **v1 (motor)**, **v2 (pigmento)**, **v3 (tokonoma)**, **v4 (modos +
+cosmos + batismo)** e **v5 (cosmos = pintura de luz)** estão funcionais. O
+motor de marbling geométrico do brief original foi substituído
 por uma **simulação de fluido real em WebGL2** (a pedido, após o vídeo de
 referência), com mistura de pigmento físico (Beer-Lambert) e paredes que
 refletem a tinta. A experiência foi redesenhada como um **tokonoma**: a UI quase
 desaparece, a água é tudo, e há um sistema de luz (atmosfera) e uma estante
 de obras guardadas com o gesto cerimonial de "guardar".
+
+A partir da **v6** o projeto ganhou uma segunda metade: **O Templo**, uma
+galeria 3D em primeira pessoa (Three.js **vendorado localmente** — única
+dependência, congelada no repo, abre offline). A aba da estante agora abre o
+templo: um cômodo de tatami com luz que muda pela hora real, as obras
+penduradas como **kakemono**, e o gesto de **focar** uma obra (aproximar até
+quase tela cheia, com zoom e um poema bilíngue japonês↔PT). A **v8** vestiu a
+sala: sombras macias, materiais mais vividos e mobília tradicional (andon,
+mesa de pintura preparada, tokonoma com arranjo). O ateliê (a água) segue
+vanilla e intocado — o Three.js só é carregado sob demanda ao abrir o templo.
 
 Restrições do brief mantidas: **zero dependências, zero build, zero
 framework**. Abre com qualquer servidor estático. Comentários em PT-BR com
@@ -47,6 +58,8 @@ tom educacional. UI mínima e em português.
 | 13 | (qualidade) | **Export 4K** | Resolução adaptativa, captura nativa, IndexedDB, export na proporção da tela. |
 | 14 | (v4) | **Modos + Cosmos + Batismo** | Organização de modos (água/cosmos como config), render emissivo, alternância; nome e haiku locais determinísticos. |
 | 15 | (v5) | **Cosmos = pintura de luz** | Redesenho: cosmos deixa de ser "fluido no espelho" e vira motor de acúmulo de luz (poeira→estrela por limiar, sopro, vazio, assentar). |
+| 16 | `dc95793`+ | **v6: O Templo (3D)** | Galeria 3D em 1ª pessoa (Three.js vendorado, import dinâmico). Cômodo tokonoma, navegação POV à prova de enjoo, luz viva por hora (`luzDaHora`), obras como kakemono, integração ateliê↔templo, focar+zoom+poema bilíngue, baixar/apagar no foco. |
+| 17 | `01bed7f`+ | **v8: Vestir o templo** | Sombras macias (VSM), materiais vividos (tatami real com heri/trama alternada, parede de argila, madeira orgânica) e mobília: tokonoma com arranjo, andon (luz quente noturna), mesa+almofada+bacia preparada para a v9. |
 
 ---
 
@@ -55,20 +68,25 @@ tom educacional. UI mínima e em português.
 ```
 suminagashi/
   docs/             # o site publicado pelo GitHub Pages (sem build)
-    index.html      # canvas + atmosfera + título vertical + estante
+    index.html      # canvas + atmosfera + título + estante + templo (canvas 3D)
     styles.css      # tokonoma: UI quase invisível, tokens de design
+    galeria-teste.html # preview isolado do templo (?hora= força o relógio)
     js/
       prng.js       # PRNG seedável (mulberry32) — determinismo desde o dia 1
       fluido.js     # MOTOR: solver de Navier-Stokes em WebGL2 + shaders GLSL
       input.js      # Pointer Events → gestos (tap = gota, drag = estilete)
-      modos.js      # os dois modos (água/cosmos) — único lugar de diferença
-      luz.js        # atmosfera: ciclo do relógio + tom da fundação (puro)
-      estante.js    # batismo: nome e haiku locais, determinísticos (puro)
-      main.js       # orquestração, estados, modos, guardar, estante, loop
+      modos.js      # os dois modos (água/cosmos) + pools do poema bilíngue
+      luz.js        # atmosfera 2D: ciclo do relógio + tom da fundação (puro)
+      estante.js    # batismo: nome, haiku e poema locais, determinísticos
+      galeria.js    # O TEMPLO: cena 3D (Three.js) — sala, luz por hora,
+                    #   kakemono, foco/zoom, mobília. Carregado sob demanda.
+      main.js       # orquestração, estados, modos, guardar, estante, templo
+      vendor/
+        three.module.js  # Three.js r160 VENDORADO (única dep, offline)
   .github/workflows/pages.yml  # deploy automático a cada push na main
   README.md         # como rodar + explicação da física
   PROGRESSO.md      # este arquivo
-  package.json      # metadados (sem dependências)
+  package.json      # metadados (sem dependências de runtime)
 ```
 
 **Separação de responsabilidades:** `fluido.js` conhece WebGL mas não
@@ -178,6 +196,45 @@ topo de `fluido.js` (dissipação, vorticidade, força da gota, ondas...).
       nativos; mobile 1024) — detalhe real, não ampliação
 - [x] Imagens das obras no IndexedDB (cota grande); metadados no
       localStorage; migração das obras antigas embutidas
+
+---
+
+## O Templo (galeria 3D — v6 / v8)
+
+Segunda metade do projeto: **pintar é vanilla (a água), expor é 3D (o
+templo)**. O Three.js é a única dependência, **vendorada** em
+`docs/js/vendor/three.module.js` (r160), resolvida por import map e carregada
+por **import dinâmico** só ao abrir o templo — o ateliê nunca o carrega.
+
+- [x] Cômodo de tatami (6×5 m) com shoji (parede de papel por onde o sol
+      entra), tokonoma (nicho de honra), vigas e teto de madeira clara.
+- [x] Navegação POV contemplativa: arrastar = olhar; tocar = caminhar
+      (sem WASD, sem balanço — à prova de enjoo).
+- [x] **Luz viva por hora** (`luzDaHora`): cor/intensidade do sol, ambiente,
+      fundo, exposição e brilho do shoji interpolados pela hora REAL (luar
+      azul de madrugada → neutro ao meio-dia → âmbar ao entardecer).
+- [x] Obras penduradas como **kakemono** (a fundação no nicho, marcada 元).
+- [x] **Focar** uma obra (clique): a câmera aproxima de frente até quase tela
+      cheia, com **zoom** (roda do mouse / pinça), o **poema** em japonês
+      (caligrafia vertical) e uma janelinha de **tradução** PT — bilíngue e
+      determinístico por obra. Baixar (PNG 4K) e apagar no foco.
+- [x] **v8 — vestir:** sombras macias (VSM, penumbra difusa), tatami real
+      (heri + trama alternada), parede de argila, madeira orgânica; mobília:
+      andon (luz quente que acende à noite), tokonoma com arranjo (vaso +
+      galho), mesa baixa + almofada + bacia.
+
+**Preparado para o futuro (vagas montadas, sem nada definitivo a arrancar):**
+
+- A **mesa baixa + bacia (suiban)** é a peça da **v9**: dali se vai pintar, em
+  POV sentado ("sentar é pintar, levantar é contemplar"). A água da bacia é um
+  **placeholder estático** — a v9 fará a costura 2D↔3D (render-to-texture do
+  motor de fluido sobre o plano da bacia). **Nenhuma** integração 2D↔3D agora.
+- O **vaso/arranjo do tokonoma** é a vaga da futura feature de **cultivo**: o
+  usuário poderá produzir o próprio bonsai/ikebana. Hoje há um arranjo-padrão
+  provisório, pronto para ser substituído.
+- **Próximos cômodos (v?):** a sala tem capacidade ~6 obras; quando enche, a
+  ideia é ramificar em novos cômodos (cada um com seu arranjo e sua era). A
+  riqueza do templo vem da quantidade de cômodos, não do entulho de uma sala.
 
 ---
 
