@@ -311,16 +311,24 @@ function criarCena(renderer) {
 // ---------------------------------------------------------------------------
 
 // Onde as obras ficam: a fundação no nicho de honra (元), as demais nas
-// paredes de reboco (NUNCA no shoji — ele é a janela de luz), com vazio (ma)
-// generoso entre elas. Capacidade ~6 por cômodo (a Fase 5 ramifica em
-// novos cômodos quando enche).
+// paredes de reboco (NUNCA no shoji — ele é a janela de luz). A PAREDE DO
+// FUNDO (-Z), que ladeia o tokonoma, é a parede principal de quadros e enche
+// PRIMEIRO — antes ficava vazia porque era a última na ordem. Os quadros
+// evitam a abertura do nicho (x ≈ -0.35 a 1.25). Capacidade ~8 por cômodo
+// (a Fase 5 ramifica em novos cômodos quando enche).
 const SLOT_NICHO = { pos: [0.45, 1.2, -PROFUND / 2 - 0.5], ry: 0 };
+const Z_FUNDO = -PROFUND / 2 + 0.04;
+const X_DIR = LARGURA / 2 - 0.04;
 const SLOTS_PAREDE = [
-  { pos: [LARGURA / 2 - 0.04, 1.5, -1.0], ry: -Math.PI / 2 }, // parede direita
-  { pos: [LARGURA / 2 - 0.04, 1.5, 0.6], ry: -Math.PI / 2 },
-  { pos: [LARGURA / 2 - 0.04, 1.5, 2.0], ry: -Math.PI / 2 },
-  { pos: [-1.7, 1.5, -PROFUND / 2 + 0.04], ry: 0 }, // fundo, à esquerda do nicho
-  { pos: [2.2, 1.5, -PROFUND / 2 + 0.04], ry: 0 }, // fundo, à direita do nicho
+  // Parede do fundo (-Z): à esquerda do nicho (2) e à direita dele (1).
+  { pos: [-2.3, 1.5, Z_FUNDO], ry: 0 },
+  { pos: [-1.1, 1.5, Z_FUNDO], ry: 0 },
+  { pos: [2.2, 1.5, Z_FUNDO], ry: 0 },
+  // Parede direita (+X, reboco): a profundidade toda, bem espaçada.
+  { pos: [X_DIR, 1.5, -2.0], ry: -Math.PI / 2 },
+  { pos: [X_DIR, 1.5, -0.7], ry: -Math.PI / 2 },
+  { pos: [X_DIR, 1.5, 0.6], ry: -Math.PI / 2 },
+  { pos: [X_DIR, 1.5, 1.9], ry: -Math.PI / 2 },
 ];
 
 const FOCO_DIST = 2.4; // a esta distância (e olhando p/ ela) a obra "foca"
