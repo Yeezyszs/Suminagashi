@@ -385,6 +385,14 @@ function pintarLuz(x, y, mx, my, velPx) {
 // ---------------------------------------------------------------------------
 
 function quadro(agora) {
+  // Com o templo aberto, a água "dorme": não simula nem renderiza (só a
+  // galeria 3D roda). Mantém o loop vivo para retomar ao voltar ao ateliê.
+  if (galeriaAberta) {
+    quadroAnterior = agora;
+    requestAnimationFrame(quadro);
+    return;
+  }
+
   input.processarPendentes();
 
   if (quadroAnterior !== null) {
@@ -911,10 +919,97 @@ function navegar(passo) {
   }, reduzMovimento.matches ? 0 : 160);
 }
 
-document.getElementById('aba-estante').addEventListener('click', abrirEstante);
+// A aba da estante agora abre O TEMPLO (galeria 3D), não mais a estante 2D.
+document.getElementById('aba-estante').addEventListener('click', abrirGaleria);
 document.getElementById('fechar-estante').addEventListener('click', fecharEstante);
 document.querySelector('.navegar.anterior').addEventListener('click', () => navegar(-1));
 document.querySelector('.navegar.proxima').addEventListener('click', () => navegar(1));
+
+// ---------------------------------------------------------------------------
+// O Templo (galeria 3D) — abre a partir da aba; integra o ateliê e a coleção
+// ---------------------------------------------------------------------------
+
+const canvasGaleria = document.getElementById('galeria-canvas');
+const galeriaUI = document.getElementById('galeria-ui');
+const rotuloObra = document.getElementById('rotulo-obra');
+const rotuloNome = document.getElementById('rotulo-nome');
+const rotuloHaiku = document.getElementById('rotulo-haiku');
+const galeriaVazia = document.getElementById('galeria-vazia');
+
+let galeria = null; // instância Three.js (criada sob demanda)
+let navGaleria = null;
+let galeriaAberta = false;
+let loopGaleria = null;
+let anteriorGaleria = null;
+
+/** Abre o templo: carrega o Three.js sob demanda (o ateliê segue leve),
+ *  monta a cena uma vez, pendura as obras da coleção e pausa a água. */
+async function abrirGaleria() {
+  if (galeriaAberta) return;
+  recolherFerramentas();
+  estanteAberta = true; // bloqueia gestos de pintura no ateliê
+  galeriaAberta = true;
+
+  // Three.js só entra em cena aqui (import dinâmico): o ateliê nunca o carrega.
+  const mod = await import('./galeria.js');
+  if (!galeria) {
+    galeria = mod.criarGaleria(canvasGaleria);
+    navGaleria = mod.instalarNavegacao(canvasGaleria, galeria, reduzMovimento.matches);
+  }
+
+  // Carrega as imagens (do IndexedDB) e pendura a coleção.
+  const lista = await Promise.all(
+    obras.map(async (o) => ({
+      id: o.id,
+      nome: o.nome,
+      haiku: o.haiku,
+      ehFundacao: o.ehFundacao,
+      imagem: await obterImagem(o),
+    }))
+  );
+  await galeria.pendurarObras(lista);
+  galeriaVazia.hidden = obras.length > 0;
+
+  canvasGaleria.hidden = false;
+  galeriaUI.hidden = false;
+  galeria.redimensionar();
+  anteriorGaleria = null;
+  loopGaleria = requestAnimationFrame(quadroGaleria);
+}
+
+function fecharGaleria() {
+  if (!galeriaAberta) return;
+  galeriaAberta = false;
+  estanteAberta = false;
+  if (loopGaleria) cancelAnimationFrame(loopGaleria);
+  canvasGaleria.hidden = true;
+  galeriaUI.hidden = true;
+  rotuloObra.classList.remove('visivel');
+  // A água volta a ser renderizada (o loop do ateliê retoma sozinho).
+}
+
+function quadroGaleria(t) {
+  const dt = anteriorGaleria === null ? 0 : Math.min((t - anteriorGaleria) / 1000, 1 / 30);
+  anteriorGaleria = t;
+  navGaleria.atualizar(dt);
+  galeria.atualizarLuz(agoraParaLuz(), dt); // mesma hora do ateliê (?hora)
+  galeria.render();
+
+  // Rótulo: nome + haiku da obra em foco (perto + olhando p/ ela).
+  const foco = galeria.obraEmFoco();
+  if (foco) {
+    rotuloNome.textContent = (foco.ehFundacao ? '元 ' : '') + foco.nome;
+    rotuloHaiku.innerHTML = foco.haiku ? foco.haiku.join('<br>') : '';
+    rotuloObra.hidden = false;
+    rotuloObra.classList.add('visivel');
+  } else {
+    rotuloObra.classList.remove('visivel');
+  }
+
+  loopGaleria = requestAnimationFrame(quadroGaleria);
+}
+
+document.getElementById('voltar-atelie').addEventListener('click', fecharGaleria);
 
 // Teclado: setas navegam, Esc fecha.
 window.addEventListener('keydown', (e) => {

@@ -7,6 +7,12 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
   <title>墨流し — suminagashi</title>
   <link rel="stylesheet" href="styles.css">
+  <!-- Three.js (a galeria 3D) VENDORADO localmente, resolvido por import
+       map — abre offline. O ateliê não usa Three.js; ele é carregado sob
+       demanda (import dinâmico) só ao abrir o templo. -->
+  <script type="importmap">
+    { "imports": { "three": "./js/vendor/three.module.js" } }
+  </script>
 </head>
 <body class="ocioso">
   <!-- O canvas é o protagonista: tela cheia, tudo o mais flutua sobre ele. -->
@@ -81,6 +87,19 @@
     <button class="navegar proxima" aria-label="próxima obra">›</button>
     <p id="estante-vazia" hidden>a estante ainda está vazia.</p>
   </section>
+
+  <!-- O TEMPLO (galeria 3D). Canvas separado do ateliê; só é montado ao
+       abrir a estante. A UI 2D sobreposta é discreta: voltar ao ateliê e o
+       rótulo (nome + haiku) que surge ao se aproximar de uma obra. -->
+  <canvas id="galeria-canvas" hidden></canvas>
+  <div id="galeria-ui" hidden>
+    <button id="voltar-atelie" aria-label="voltar ao ateliê (pintar)">墨</button>
+    <div id="rotulo-obra" hidden>
+      <span id="rotulo-nome"></span>
+      <p id="rotulo-haiku"></p>
+    </div>
+    <p id="galeria-vazia" hidden>guarde uma pintura para o templo nascer.</p>
+  </div>
 
   <script type="module" src="js/main.js"></script>
 </body>

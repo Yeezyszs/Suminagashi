@@ -207,9 +207,82 @@ function criarCena(renderer) {
   // --- tokonoma (nicho de honra) -----------------------------------------
   cena.add(criarTokonoma(matMadeira, matMadeiraEsc, matParede));
 
-  // Devolve a cena + o material do shoji (a luz por hora modula o brilho
-  // dele — papel mais aceso de dia, frio e tênue à noite).
-  return { cena, matShoji };
+  // Devolve a cena + os materiais que a Fase 4 reusa (shoji p/ a luz por
+  // hora; madeiras p/ as molduras dos kakemono).
+  return { cena, matShoji, matMadeira, matMadeiraEsc };
+}
+
+// ---------------------------------------------------------------------------
+// Fase 4 — as obras como kakemono (pergaminhos pendurados)
+// ---------------------------------------------------------------------------
+
+// Onde as obras ficam: a fundação no nicho de honra (元), as demais nas
+// paredes de reboco (NUNCA no shoji — ele é a janela de luz), com vazio (ma)
+// generoso entre elas. Capacidade ~6 por cômodo (a Fase 5 ramifica em
+// novos cômodos quando enche).
+const SLOT_NICHO = { pos: [0.45, 1.2, -PROFUND / 2 - 0.5], ry: 0 };
+const SLOTS_PAREDE = [
+  { pos: [LARGURA / 2 - 0.04, 1.5, -1.0], ry: -Math.PI / 2 }, // parede direita
+  { pos: [LARGURA / 2 - 0.04, 1.5, 0.6], ry: -Math.PI / 2 },
+  { pos: [LARGURA / 2 - 0.04, 1.5, 2.0], ry: -Math.PI / 2 },
+  { pos: [-1.7, 1.5, -PROFUND / 2 + 0.04], ry: 0 }, // fundo, à esquerda do nicho
+  { pos: [2.2, 1.5, -PROFUND / 2 + 0.04], ry: 0 }, // fundo, à direita do nicho
+];
+
+const FOCO_DIST = 2.4; // a esta distância (e olhando p/ ela) a obra "foca"
+
+/** Carrega um dataURL como textura (assíncrono). */
+function carregarTextura(dataUrl) {
+  return new Promise((resolve) => {
+    new THREE.TextureLoader().load(
+      dataUrl,
+      (t) => {
+        t.colorSpace = THREE.SRGBColorSpace;
+        resolve(t);
+      },
+      undefined,
+      () => resolve(null)
+    );
+  });
+}
+
+/** Monta um kakemono: a obra (proporção da imagem) numa moldura escura, com
+ *  as hastes de madeira em cima e embaixo, como um pergaminho pendurado. A
+ *  obra é levemente emissiva — legível de dia e à noite, como um quadro
+ *  iluminado. */
+function criarKakemono(textura, matMadeira, matMadeiraEsc, destaque) {
+  const grupo = new THREE.Group();
+  const aspecto = textura.image ? textura.image.width / textura.image.height : 1.6;
+  const w = destaque ? 0.86 : 0.72; // a fundação um pouco maior
+  const h = w / aspecto;
+
+  // moldura/fundo de madeira escura
+  const moldura = new THREE.Mesh(new THREE.PlaneGeometry(w + 0.07, h + 0.07), matMadeiraEsc);
+  grupo.add(moldura);
+
+  // a obra
+  const matObra = new THREE.MeshStandardMaterial({
+    map: textura,
+    emissive: 0xffffff,
+    emissiveMap: textura,
+    emissiveIntensity: 0.35,
+    roughness: 0.95,
+    metalness: 0,
+  });
+  const obra = new THREE.Mesh(new THREE.PlaneGeometry(w, h), matObra);
+  obra.position.z = 0.012;
+  grupo.add(obra);
+
+  // hastes (rolos) de madeira clara em cima e embaixo
+  const haste = new THREE.CylinderGeometry(0.018, 0.018, w + 0.14, 8);
+  for (const dy of [h / 2 + 0.05, -h / 2 - 0.05]) {
+    const r = new THREE.Mesh(haste, matMadeira);
+    r.rotation.z = Math.PI / 2;
+    r.position.set(0, dy, 0.012);
+    r.castShadow = true;
+    grupo.add(r);
+  }
+  return grupo;
 }
 
 /** Parede shoji: painel de papel brilhante + treliça de madeira (mortantes)
@@ -455,8 +528,57 @@ export function criarGaleria(canvas) {
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
   renderer.toneMappingExposure = 1.0;
 
-  const { cena, matShoji } = criarCena(renderer);
+  const { cena, matShoji, matMadeira, matMadeiraEsc } = criarCena(renderer);
   const luz = criarLuz(cena);
+
+  // Grupo das obras penduradas (limpo e remontado a cada abertura).
+  const grupoObras = new THREE.Group();
+  cena.add(grupoObras);
+  const penduradas = []; // { dados, pos: Vector3 }
+
+  /**
+   * Pendura a coleção: a fundação no nicho de honra, as demais nas paredes
+   * (com vazio entre elas). Cada obra: { id, nome, haiku, ehFundacao,
+   * imagem(dataURL) }. Async (carrega as texturas).
+   */
+  async function pendurarObras(lista) {
+    grupoObras.clear();
+    penduradas.length = 0;
+    let iParede = 0;
+    for (const o of lista) {
+      if (!o.imagem) continue;
+      const slot = o.ehFundacao ? SLOT_NICHO : SLOTS_PAREDE[iParede++];
+      if (!slot) continue; // excedeu a capacidade do cômodo (Fase 5: novo cômodo)
+      const tex = await carregarTextura(o.imagem);
+      if (!tex) continue;
+      const km = criarKakemono(tex, matMadeira, matMadeiraEsc, o.ehFundacao);
+      km.position.set(slot.pos[0], slot.pos[1], slot.pos[2]);
+      km.rotation.y = slot.ry;
+      grupoObras.add(km);
+      penduradas.push({ dados: o, pos: new THREE.Vector3(slot.pos[0], slot.pos[1], slot.pos[2]) });
+    }
+  }
+
+  const _fwd = new THREE.Vector3();
+  const _dir = new THREE.Vector3();
+  /** A obra "em foco" (perto e na direção do olhar), ou null — para o
+   *  rótulo de nome+haiku da camada 2D. */
+  function obraEmFoco() {
+    camera.getWorldDirection(_fwd);
+    let melhor = null;
+    let melhorDist = FOCO_DIST;
+    for (const p of penduradas) {
+      const d = p.pos.distanceTo(camera.position);
+      if (d > FOCO_DIST) continue;
+      _dir.subVectors(p.pos, camera.position).normalize();
+      if (_fwd.dot(_dir) < 0.6) continue; // só conta se estiver olhando p/ ela
+      if (d < melhorDist) {
+        melhorDist = d;
+        melhor = p.dados;
+      }
+    }
+    return melhor;
+  }
 
   const camera = new THREE.PerspectiveCamera(48, 1, 0.05, 100);
   // Olho humano perto da entrada, olhando para o tokonoma (fundo).
@@ -527,7 +649,18 @@ export function criarGaleria(canvas) {
   }
 
   redimensionar();
-  return { render, redimensionar, dispose, camera, cena, luz, renderer, atualizarLuz };
+  return {
+    render,
+    redimensionar,
+    dispose,
+    camera,
+    cena,
+    luz,
+    renderer,
+    atualizarLuz,
+    pendurarObras,
+    obraEmFoco,
+  };
 }
 
 // ---------------------------------------------------------------------------

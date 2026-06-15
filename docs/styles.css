@@ -640,3 +640,119 @@ body.pintando #ferramentas {
     transform: none;
   }
 }
+
+/* ----------------------------------------------------------- o templo (3D) */
+
+#galeria-canvas {
+  position: fixed;
+  inset: 0;
+  width: 100vw;
+  height: 100vh;
+  display: block;
+  z-index: 70; /* por cima do ateliê e da atmosfera */
+  touch-action: none;
+  cursor: grab;
+}
+
+#galeria-canvas[hidden] {
+  display: none;
+}
+
+#galeria-ui {
+  position: fixed;
+  inset: 0;
+  z-index: 71;
+  pointer-events: none; /* só os filhos interativos capturam */
+}
+
+#galeria-ui[hidden] {
+  display: none;
+}
+
+/* Voltar ao ateliê: ícone quieto (墨, "tinta") num canto. */
+#voltar-atelie {
+  position: fixed;
+  top: 1.1rem;
+  left: 1.2rem;
+  pointer-events: auto;
+  width: 2.6rem;
+  height: 2.6rem;
+  border: none;
+  border-radius: 50%;
+  background: rgba(28, 28, 28, 0.42);
+  color: #f2ecdd;
+  font-family: "Hiragino Mincho ProN", "Yu Mincho", serif;
+  font-size: 1.2rem;
+  cursor: pointer;
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  opacity: 0.8;
+  transition: opacity 0.2s ease;
+}
+
+#voltar-atelie:hover,
+#voltar-atelie:focus-visible {
+  opacity: 1;
+  outline: 2px solid #f2ecdd;
+  outline-offset: 2px;
+}
+
+/* Rótulo da obra em foco: nome + haiku, mincho vertical, discreto, à
+   direita. Surge ao se aproximar de uma obra; some ao afastar. */
+#rotulo-obra {
+  position: fixed;
+  top: 50%;
+  right: 1.6rem;
+  transform: translateY(-50%);
+  writing-mode: vertical-rl;
+  text-align: start;
+  color: #f4eee0;
+  text-shadow: 0 1px 6px rgba(0, 0, 0, 0.6);
+  font-family: "Hiragino Mincho ProN", "Yu Mincho", "Songti SC", serif;
+  opacity: 0;
+  transition: opacity 0.5s ease;
+  pointer-events: none;
+}
+
+#rotulo-obra.visivel {
+  opacity: 0.95;
+}
+
+#rotulo-obra[hidden] {
+  display: none;
+}
+
+#rotulo-nome {
+  font-size: 1.15rem;
+  letter-spacing: 0.18em;
+}
+
+#rotulo-haiku {
+  margin-right: 0.7rem;
+  font-size: 0.82rem;
+  letter-spacing: 0.14em;
+  line-height: 1.9;
+  opacity: 0.85;
+}
+
+#galeria-vazia {
+  position: fixed;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  color: #f2ecdd;
+  text-shadow: 0 1px 6px rgba(0, 0, 0, 0.6);
+  font-family: "Hiragino Mincho ProN", "Yu Mincho", serif;
+  letter-spacing: 0.12em;
+}
+
+#galeria-vazia[hidden] {
+  display: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  #rotulo-obra,
+  #voltar-atelie {
+    transition: none;
+  }
+}
