@@ -289,9 +289,15 @@ function criarCena(renderer) {
   arranjo.position.set(-0.05, 0.1, -2.7);
   cena.add(arranjo);
 
+  // --- andon (luminária de papel) no canto do fundo, à esquerda ----------
+  const andon = criarAndon(matMadeiraEsc);
+  andon.grupo.position.set(-2.15, 0, -1.7);
+  cena.add(andon.grupo);
+
   // Devolve a cena + os materiais que a Fase 4 reusa (shoji p/ a luz por
-  // hora; madeiras p/ as molduras dos kakemono).
-  return { cena, matShoji, matMadeira, matMadeiraEsc };
+  // hora; madeiras p/ as molduras dos kakemono) + o andon (luz/papel) que a
+  // luz por hora modula.
+  return { cena, matShoji, matMadeira, matMadeiraEsc, andonLuz: andon.luz, andonMat: andon.mat };
 }
 
 // ---------------------------------------------------------------------------
@@ -548,6 +554,61 @@ function criarArranjoTokonoma() {
   return grupo;
 }
 
+/**
+ * Andon: a luminária de papel washi com armação de madeira escura. Emite um
+ * brilho quente e ÍNTIMO — um segundo foco de luz além do sol pelos shoji,
+ * lindo à noite. Devolve { grupo, luz, mat } para que a luz por hora module
+ * sua intensidade (forte à noite, quase apagada de dia).
+ */
+function criarAndon(matMadeiraEsc) {
+  const grupo = new THREE.Group();
+  const larg = 0.28;
+  const alt = 0.46;
+  const yBase = 0.1; // levanta a caixa sobre uma basezinha
+
+  // papel washi (emissivo): a "tela" da luz
+  const matPapel = new THREE.MeshStandardMaterial({
+    map: texturaShoji(),
+    color: 0xfff0d6,
+    emissive: new THREE.Color(0xffb867),
+    emissiveIntensity: 0.6,
+    roughness: 1,
+    metalness: 0,
+  });
+  const papel = new THREE.Mesh(new THREE.BoxGeometry(larg, alt, larg), matPapel);
+  papel.position.y = yBase + alt / 2;
+  grupo.add(papel);
+
+  // base e tampa de madeira escura
+  const base = new THREE.Mesh(new THREE.BoxGeometry(larg + 0.07, 0.06, larg + 0.07), matMadeiraEsc);
+  base.position.y = yBase - 0.01;
+  base.castShadow = true;
+  base.receiveShadow = true;
+  grupo.add(base);
+  const tampa = new THREE.Mesh(new THREE.BoxGeometry(larg + 0.07, 0.045, larg + 0.07), matMadeiraEsc);
+  tampa.position.y = yBase + alt + 0.02;
+  tampa.castShadow = true;
+  grupo.add(tampa);
+
+  // 4 montantes nos cantos (a armação)
+  const montante = new THREE.BoxGeometry(0.022, alt, 0.022);
+  for (const sx of [-1, 1]) {
+    for (const sz of [-1, 1]) {
+      const m = new THREE.Mesh(montante, matMadeiraEsc);
+      m.position.set((sx * larg) / 2, yBase + alt / 2, (sz * larg) / 2);
+      m.castShadow = true;
+      grupo.add(m);
+    }
+  }
+
+  // a luz dentro do papel: quente, curta, sem sombra (barata)
+  const luz = new THREE.PointLight(0xffb267, 0.6, 3.0, 2.0);
+  luz.position.set(0, yBase + alt / 2, 0);
+  grupo.add(luz);
+
+  return { grupo, luz, mat: matPapel };
+}
+
 // ---------------------------------------------------------------------------
 // Luz (a alma do espaço)
 // ---------------------------------------------------------------------------
@@ -673,7 +734,7 @@ export function criarGaleria(canvas) {
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
   renderer.toneMappingExposure = 1.0;
 
-  const { cena, matShoji, matMadeira, matMadeiraEsc } = criarCena(renderer);
+  const { cena, matShoji, matMadeira, matMadeiraEsc, andonLuz, andonMat } = criarCena(renderer);
   const luz = criarLuz(cena);
 
   // Grupo das obras penduradas (limpo e remontado a cada abertura).
@@ -751,6 +812,8 @@ export function criarGaleria(canvas) {
     expo: 1.0,
     shoji: matShoji.emissiveIntensity,
     corShoji: matShoji.emissive.clone(),
+    andonI: andonLuz.intensity, // intensidade da luz do andon
+    andonE: andonMat.emissiveIntensity, // brilho do papel do andon
   };
 
   const tmpCor = new THREE.Color();
@@ -783,6 +846,14 @@ export function criarGaleria(canvas) {
     renderer.toneMappingExposure = atual.expo;
     matShoji.emissiveIntensity = atual.shoji;
     matShoji.emissive.copy(atual.corShoji); // papel quente de dia, azul-lunar à noite
+
+    // Andon: acende ao anoitecer e quase apaga de dia (não compete com o sol).
+    // 'dia' ∈ [0,1] a partir da intensidade-alvo do sol (0.46 noite → 2.5 meio-dia).
+    const dia = Math.min(1, Math.max(0, (alvo.intSol - 0.6) / 1.7));
+    atual.andonI = lerp(atual.andonI, 0.12 + (1 - dia) * 1.05);
+    atual.andonE = lerp(atual.andonE, 0.2 + (1 - dia) * 0.75);
+    andonLuz.intensity = atual.andonI;
+    andonMat.emissiveIntensity = atual.andonE;
   }
 
   function redimensionar() {
