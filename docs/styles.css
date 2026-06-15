@@ -846,6 +846,50 @@ body.pintando #ferramentas {
   outline-offset: 2px;
 }
 
+/* Ações da obra (baixar / apagar): pílulas discretas no canto superior
+   direito, sob o ✕. Capturam toque (o resto do overlay deixa o zoom passar). */
+#foco-acoes {
+  position: fixed;
+  top: 4.3rem;
+  right: 1.2rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  pointer-events: auto;
+}
+
+#foco-acoes button {
+  border: 1px solid rgba(242, 236, 221, 0.35);
+  border-radius: 999px;
+  padding: 0.4rem 0.9rem;
+  background: rgba(28, 28, 28, 0.42);
+  color: #f2ecdd;
+  font-family: system-ui, sans-serif;
+  font-size: 0.72rem;
+  letter-spacing: 0.08em;
+  cursor: pointer;
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  opacity: 0.85;
+  transition: opacity 0.2s ease;
+}
+
+#foco-acoes button:hover,
+#foco-acoes button:focus-visible {
+  opacity: 1;
+  outline: 2px solid #f2ecdd;
+  outline-offset: 2px;
+}
+
+#foco-acoes button[hidden] {
+  display: none;
+}
+
+/* "apagar" pede confirmação — tom de alerta discreto no segundo toque. */
+#foco-apagar {
+  color: #f0c9b8;
+}
+
 @media (prefers-reduced-motion: reduce) {
   #rotulo-obra,
   #voltar-atelie,

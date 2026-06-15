@@ -938,6 +938,9 @@ const galeriaVazia = document.getElementById('galeria-vazia');
 const focoObraEl = document.getElementById('foco-obra');
 const focoPoemaJa = document.getElementById('foco-poema-ja');
 const focoPoemaPt = document.getElementById('foco-poema-pt');
+const focoAcoes = document.getElementById('foco-acoes');
+const botaoBaixarFoco = document.getElementById('foco-baixar');
+const botaoApagarFoco = document.getElementById('foco-apagar');
 
 let galeria = null; // instância Three.js (criada sob demanda)
 let navGaleria = null;
@@ -945,6 +948,7 @@ let galeriaAberta = false;
 let loopGaleria = null;
 let anteriorGaleria = null;
 let focoIdAtual = null; // id da obra focada (evita recompor o poema todo quadro)
+let confirmandoApagarFoco = false; // "apagar" pede confirmação (dois toques)
 
 /** Abre o templo: carrega o Three.js sob demanda (o ateliê segue leve),
  *  monta a cena uma vez, pendura as obras da coleção e pausa a água. */
@@ -961,7 +965,18 @@ async function abrirGaleria() {
     navGaleria = mod.instalarNavegacao(canvasGaleria, galeria, reduzMovimento.matches);
   }
 
-  // Carrega as imagens (do IndexedDB) e pendura a coleção.
+  await repovoarTemplo();
+
+  canvasGaleria.hidden = false;
+  galeriaUI.hidden = false;
+  galeria.redimensionar();
+  anteriorGaleria = null;
+  loopGaleria = requestAnimationFrame(quadroGaleria);
+}
+
+/** Carrega as imagens (do IndexedDB) e (re)pendura a coleção no templo.
+ *  Chamada ao abrir e após apagar uma obra. */
+async function repovoarTemplo() {
   const lista = await Promise.all(
     obras.map(async (o) => ({
       id: o.id,
@@ -974,12 +989,6 @@ async function abrirGaleria() {
   );
   await galeria.pendurarObras(lista);
   galeriaVazia.hidden = obras.length > 0;
-
-  canvasGaleria.hidden = false;
-  galeriaUI.hidden = false;
-  galeria.redimensionar();
-  anteriorGaleria = null;
-  loopGaleria = requestAnimationFrame(quadroGaleria);
 }
 
 function fecharGaleria() {
@@ -1014,6 +1023,10 @@ function quadroGaleria(t) {
       const poema = gerarPoema(m, hash(obraFoco.id));
       focoPoemaJa.innerHTML = poema.ja.join('<br>');
       focoPoemaPt.innerHTML = poema.pt.join('<br>');
+      // A fundação (元) é permanente: esconde "apagar". Reset do confirmar.
+      botaoApagarFoco.hidden = !!obraFoco.ehFundacao;
+      confirmandoApagarFoco = false;
+      botaoApagarFoco.textContent = 'apagar';
     }
     focoObraEl.hidden = false;
     focoObraEl.classList.add('visivel');
@@ -1021,6 +1034,8 @@ function quadroGaleria(t) {
   } else {
     if (focoIdAtual !== null) {
       focoIdAtual = null;
+      confirmandoApagarFoco = false;
+      botaoApagarFoco.textContent = 'apagar';
       focoObraEl.classList.remove('visivel');
       focoObraEl.hidden = true;
     }
@@ -1043,6 +1058,37 @@ document.getElementById('voltar-atelie').addEventListener('click', fecharGaleria
 // Afastar do quadro (✕ da janelinha): sai do foco, volta a caminhar.
 document.getElementById('foco-fechar').addEventListener('click', () => {
   if (navGaleria) navGaleria.sairFoco();
+});
+
+// Baixar a obra em foco (PNG 4K) — mesma rotina da estante 2D.
+botaoBaixarFoco.addEventListener('click', () => {
+  const f = navGaleria && navGaleria.focoAtual();
+  if (!f) return;
+  const obra = obras.find((o) => o.id === f.id);
+  if (obra) exportarImagem(obra, botaoBaixarFoco, 'baixar');
+});
+
+// Apagar a obra em foco: dois toques (clique → "confirmar?" → confirma). A
+// fundação não chega aqui (o botão fica escondido). Após apagar, sai do foco
+// e repovoa o templo; se esvaziar, mostra o aviso.
+botaoApagarFoco.addEventListener('click', async () => {
+  const f = navGaleria && navGaleria.focoAtual();
+  if (!f || f.ehFundacao) return;
+  if (!confirmandoApagarFoco) {
+    confirmandoApagarFoco = true;
+    botaoApagarFoco.textContent = 'confirmar?';
+    return;
+  }
+  confirmandoApagarFoco = false;
+  botaoApagarFoco.textContent = 'apagar';
+  const i = obras.findIndex((o) => o.id === f.id);
+  if (i >= 0) {
+    const [removida] = obras.splice(i, 1);
+    idbApagar(removida.id); // libera a imagem do banco (best-effort)
+    salvarEstante();
+  }
+  navGaleria.sairFoco();
+  await repovoarTemplo();
 });
 
 // Teclado: setas navegam, Esc fecha.
@@ -1128,21 +1174,21 @@ botaoApagar.addEventListener('click', () => {
   }
 });
 
-botaoExportar.addEventListener('click', exportarObra);
+botaoExportar.addEventListener('click', () => exportarImagem(obras[focoEstante], botaoExportar, 'exportar'));
 
 /**
- * Baixa a obra em foco como PNG. A imagem é a que foi capturada ao guardar
+ * Baixa uma obra como PNG. A imagem é a que foi capturada ao guardar
  * (a simulação não guarda estado por obra, então é esta a resolução
  * disponível). Desenha o JPEG armazenado num canvas e exporta PNG —
- * o formato que se espera para salvar arte.
+ * o formato que se espera para salvar arte. Compartilhada pela estante 2D
+ * e pelo foco da galeria 3D (cada um passa seu próprio botão/rótulo).
  */
-async function exportarObra() {
-  const obra = obras[focoEstante];
+async function exportarImagem(obra, botao, rotulo) {
   if (!obra) return;
   const fonte = await obterImagem(obra);
   if (!fonte) return;
 
-  botaoExportar.textContent = 'gerando 4K…';
+  botao.textContent = 'gerando 4K…';
   try {
     const img = await carregarImagem(fonte);
     // Exporta na PROPORÇÃO DA TELA, não na da janela do navegador. A obra é
@@ -1171,7 +1217,7 @@ async function exportarObra() {
     // Qualquer falha (toBlob, canvas) → baixa o JPEG guardado direto.
     baixarArquivo(fonte, nomeDeArquivo(obra, 'jpg'), false);
   }
-  setTimeout(() => (botaoExportar.textContent = 'exportar'), 1200);
+  setTimeout(() => (botao.textContent = rotulo), 1200);
 }
 
 /**
