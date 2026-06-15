@@ -23,12 +23,24 @@
     const reduz = matchMedia('(prefers-reduced-motion: reduce)').matches;
     const nav = instalarNavegacao(canvas, g, reduz);
     addEventListener('resize', () => g.redimensionar());
-    // Fase 2: POV navegável — arraste para olhar, toque para caminhar.
+
+    // ?hora=HH:MM força o horário para validar o ciclo de luz; sem isso,
+    // usa o relógio real (Fase 3).
+    const horaForcada = new URLSearchParams(location.search).get('hora');
+    function agora() {
+      if (!horaForcada) return new Date();
+      const [hh, mm] = horaForcada.split(':');
+      const d = new Date();
+      d.setHours(+hh || 0, +mm || 0, 0, 0);
+      return d;
+    }
+
     let anterior = null;
-    function loop(agora) {
-      const dt = anterior === null ? 0 : Math.min((agora - anterior) / 1000, 1 / 30);
-      anterior = agora;
+    function loop(t) {
+      const dt = anterior === null ? 0 : Math.min((t - anterior) / 1000, 1 / 30);
+      anterior = t;
       nav.atualizar(dt);
+      g.atualizarLuz(agora(), dt); // Fase 3: luz viva por hora
       g.render();
       requestAnimationFrame(loop);
     }

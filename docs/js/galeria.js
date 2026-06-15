@@ -207,7 +207,9 @@ function criarCena(renderer) {
   // --- tokonoma (nicho de honra) -----------------------------------------
   cena.add(criarTokonoma(matMadeira, matMadeiraEsc, matParede));
 
-  return cena;
+  // Devolve a cena + o material do shoji (a luz por hora modula o brilho
+  // dele — papel mais aceso de dia, frio e tênue à noite).
+  return { cena, matShoji };
 }
 
 /** Parede shoji: painel de papel brilhante + treliça de madeira (mortantes)
@@ -368,6 +370,76 @@ function criarLuz(cena) {
 }
 
 // ---------------------------------------------------------------------------
+// Luz viva: o ciclo do dia (color grading 3D real, não filtro 2D)
+//
+// Reaproveita o conceito do ciclo da v3, mas agora como LUZ de verdade: a
+// cor e a intensidade do sol, o ambiente, o fundo/fog, a exposição e até o
+// brilho do papel shoji mudam com a hora REAL. É o coração poético — de
+// madrugada a sala é luar azul e sombras longas; ao meio-dia, neutra e
+// clara; ao entardecer, a madeira doura.
+// ---------------------------------------------------------------------------
+
+/** Quadros-chave da luz, de 3 em 3 horas (cíclicos: 24h volta ao 0h). Cada
+ *  um descreve a luz daquele instante. Chutes iniciais — calibrar no tato. */
+const QUADROS_LUZ = [
+  // h,  corSol,    intSol, corAmb,    intAmb, corFundo,  elevSol, expo, shoji, corShoji
+  [0, 0x8fa9d8, 0.5, 0x2b3a5a, 0.36, 0x121a2e, 0.34, 0.88, 0.32, 0x9fb8ec], // meia-noite (luar azul)
+  [3, 0x88a0d0, 0.46, 0x283655, 0.34, 0x101626, 0.3, 0.88, 0.3, 0x9ab2ea], //  madrugada
+  [6, 0xccd2e2, 1.2, 0xb7c1d2, 0.82, 0xc4c8cb, 0.16, 1.0, 0.55, 0xe7edf6], //  amanhecer (frio, claro)
+  [9, 0xffeccf, 2.1, 0xe6dcc6, 1.0, 0xd6cdba, 0.46, 1.0, 0.78, 0xfff1da], //   manhã
+  [12, 0xfff4e6, 2.5, 0xeae2cf, 1.1, 0xd9d3c2, 0.7, 1.0, 0.9, 0xfff6ea], //    meio-dia (neutro, claro)
+  [15, 0xffe7c2, 2.25, 0xe9dabf, 1.0, 0xd8ccac, 0.5, 1.0, 0.85, 0xffe9c8], //  tarde (começa a dourar)
+  [18, 0xffc887, 1.95, 0xdcc299, 0.86, 0xddc196, 0.15, 1.02, 0.7, 0xffce93], // dourada (âmbar, sombras longas)
+  [21, 0xc88e58, 0.95, 0x5e4d3a, 0.5, 0x352a1e, 0.28, 0.92, 0.42, 0xe2a875], // anoitecer
+];
+
+const suave3 = (t) => t * t * (3 - 2 * t);
+
+/** Interpola componente a componente um canal hex (sRGB simples). */
+function lerpHex(a, b, t) {
+  const ar = (a >> 16) & 255, ag = (a >> 8) & 255, ab = a & 255;
+  const br = (b >> 16) & 255, bg = (b >> 8) & 255, bb = b & 255;
+  return (
+    ((Math.round(ar + (br - ar) * t) << 16) |
+      (Math.round(ag + (bg - ag) * t) << 8) |
+      Math.round(ab + (bb - ab) * t)) >>>
+    0
+  );
+}
+
+/**
+ * A luz numa hora qualquer (função pura): interpola ciclicamente entre os
+ * quadros-chave com smoothstep. A virada da meia-noite é tão suave quanto
+ * qualquer outra (0h e 24h são o mesmo ponto).
+ *
+ * @param {Date} date
+ * @returns {{ corSol, intSol, corAmb, intAmb, corFundo, elevSol, expo, shoji }}
+ */
+export function luzDaHora(date) {
+  const hora = date.getHours() + date.getMinutes() / 60 + date.getSeconds() / 3600;
+  const passo = 24 / QUADROS_LUZ.length; // 3h
+  const i = Math.floor(hora / passo) % QUADROS_LUZ.length;
+  const j = (i + 1) % QUADROS_LUZ.length;
+  let frac = (hora - QUADROS_LUZ[i][0]) / passo;
+  if (frac < 0) frac += 24 / passo;
+  const t = suave3(Math.min(Math.max(frac, 0), 1));
+  const a = QUADROS_LUZ[i];
+  const b = QUADROS_LUZ[j];
+  const num = (k) => a[k] + (b[k] - a[k]) * t;
+  return {
+    corSol: lerpHex(a[1], b[1], t),
+    intSol: num(2),
+    corAmb: lerpHex(a[3], b[3], t),
+    intAmb: num(4),
+    corFundo: lerpHex(a[5], b[5], t),
+    elevSol: num(6),
+    expo: num(7),
+    shoji: num(8),
+    corShoji: lerpHex(a[9], b[9], t),
+  };
+}
+
+// ---------------------------------------------------------------------------
 // API pública
 // ---------------------------------------------------------------------------
 
@@ -383,13 +455,60 @@ export function criarGaleria(canvas) {
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
   renderer.toneMappingExposure = 1.0;
 
-  const cena = criarCena(renderer);
+  const { cena, matShoji } = criarCena(renderer);
   const luz = criarLuz(cena);
 
   const camera = new THREE.PerspectiveCamera(48, 1, 0.05, 100);
   // Olho humano perto da entrada, olhando para o tokonoma (fundo).
   camera.position.set(1.6, 1.45, 1.8);
   camera.lookAt(-0.8, 1.1, -PROFUND / 2);
+
+  // Estado de luz ATUAL (suavizado): transiciona para luzDaHora a cada
+  // quadro, então a virada minuto a minuto é imperceptível (e mudanças
+  // forçadas para teste levam ~2s).
+  const atual = {
+    corSol: new THREE.Color(LUZ_COR),
+    corAmb: new THREE.Color(AMBIENTE_COR),
+    corFundo: new THREE.Color(FOG_COR),
+    intSol: LUZ_INTENSIDADE,
+    intAmb: AMBIENTE_INTENSIDADE,
+    elevSol: 0.5,
+    expo: 1.0,
+    shoji: matShoji.emissiveIntensity,
+    corShoji: matShoji.emissive.clone(),
+  };
+
+  const tmpCor = new THREE.Color();
+
+  /** Aplica luzDaHora(date), interpolando suavemente o estado atual. */
+  function atualizarLuz(date, dt) {
+    const alvo = luzDaHora(date);
+    const k = Math.min(1, dt * 0.6); // ~2s p/ acomodar uma troca brusca
+    const lerp = (a, b) => a + (b - a) * k;
+
+    atual.corSol.lerp(tmpCor.setHex(alvo.corSol), k);
+    atual.corAmb.lerp(tmpCor.setHex(alvo.corAmb), k);
+    atual.corFundo.lerp(tmpCor.setHex(alvo.corFundo), k);
+    atual.corShoji.lerp(tmpCor.setHex(alvo.corShoji), k);
+    atual.intSol = lerp(atual.intSol, alvo.intSol);
+    atual.intAmb = lerp(atual.intAmb, alvo.intAmb);
+    atual.elevSol = lerp(atual.elevSol, alvo.elevSol);
+    atual.expo = lerp(atual.expo, alvo.expo);
+    atual.shoji = lerp(atual.shoji, alvo.shoji);
+
+    luz.sol.color.copy(atual.corSol);
+    luz.sol.intensity = atual.intSol;
+    // Elevação do sol: baixo = sombras longas (amanhecer/entardecer); alto
+    // = sombras curtas (meio-dia). Azimute fixo (vem de fora do shoji).
+    luz.sol.position.set(-8, 1.4 + atual.elevSol * 9, 3);
+    luz.ceu.color.copy(atual.corAmb);
+    luz.ceu.intensity = atual.intAmb;
+    cena.background.copy(atual.corFundo);
+    cena.fog.color.copy(atual.corFundo);
+    renderer.toneMappingExposure = atual.expo;
+    matShoji.emissiveIntensity = atual.shoji;
+    matShoji.emissive.copy(atual.corShoji); // papel quente de dia, azul-lunar à noite
+  }
 
   function redimensionar() {
     const w = canvas.clientWidth;
@@ -408,7 +527,7 @@ export function criarGaleria(canvas) {
   }
 
   redimensionar();
-  return { render, redimensionar, dispose, camera, cena, luz, renderer };
+  return { render, redimensionar, dispose, camera, cena, luz, renderer, atualizarLuz };
 }
 
 // ---------------------------------------------------------------------------
