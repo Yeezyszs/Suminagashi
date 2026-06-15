@@ -294,6 +294,12 @@ function criarCena(renderer) {
   andon.grupo.position.set(-2.15, 0, -1.7);
   cena.add(andon.grupo);
 
+  // --- mesa baixa + almofada + bacia (preparada para a v9) ---------------
+  // Canto frente-esquerda, aberto: não tapa obras nem bloqueia a caminhada.
+  const mesa = criarMesaBaixa(matMadeira, matMadeiraEsc);
+  mesa.position.set(-0.9, 0, 0.7);
+  cena.add(mesa);
+
   // Devolve a cena + os materiais que a Fase 4 reusa (shoji p/ a luz por
   // hora; madeiras p/ as molduras dos kakemono) + o andon (luz/papel) que a
   // luz por hora modula.
@@ -607,6 +613,62 @@ function criarAndon(matMadeiraEsc) {
   grupo.add(luz);
 
   return { grupo, luz, mat: matPapel };
+}
+
+/**
+ * Mesa baixa (chabudai) + almofada (zabuton) + bacia (suiban). PEÇA PREPARADA
+ * para a v9: este será o lugar de onde se PINTA — a bacia de suminagashi
+ * sobre a mesa, em POV sentado ("sentar é pintar, levantar é contemplar"). A
+ * almofada marca onde o pintor senta (de costas para a entrada, o shoji à sua
+ * esquerda — a luz da pintura entra pelo papel, como no ateliê).
+ *
+ * A superfície da água é um PLACEHDER estático (um plano com a cor do papel/
+ * água parada). NÃO há simulação nem integração 2D↔3D aqui — isso é a
+ * "costura" da v9 (render-to-texture do motor de fluido sobre este plano).
+ */
+function criarMesaBaixa(matMadeira, matMadeiraEsc) {
+  const grupo = new THREE.Group();
+
+  // tampo
+  const tampo = new THREE.Mesh(new THREE.BoxGeometry(0.8, 0.04, 0.54), matMadeira);
+  tampo.position.y = 0.28;
+  tampo.castShadow = true;
+  tampo.receiveShadow = true;
+  grupo.add(tampo);
+  // 4 pernas curtas
+  const perna = new THREE.BoxGeometry(0.045, 0.28, 0.045);
+  for (const sx of [-1, 1]) {
+    for (const sz of [-1, 1]) {
+      const p = new THREE.Mesh(perna, matMadeiraEsc);
+      p.position.set(sx * 0.35, 0.14, sz * 0.22);
+      p.castShadow = true;
+      grupo.add(p);
+    }
+  }
+
+  // bacia (suiban): moldura de laca escura + a superfície d'água (placeholder)
+  const matLaca = new THREE.MeshStandardMaterial({ color: 0x241f1b, roughness: 0.45, metalness: 0 });
+  const bacia = new THREE.Mesh(new THREE.BoxGeometry(0.44, 0.06, 0.34), matLaca);
+  bacia.position.y = 0.33;
+  bacia.castShadow = true;
+  grupo.add(bacia);
+  // PLACEHOLDER da água: plano com cor de papel/água parada (sem simulação).
+  // A v9 troca este map por uma textura render-to-texture do motor de fluido.
+  const matAgua = new THREE.MeshStandardMaterial({ color: 0xdbe0db, roughness: 0.25, metalness: 0 });
+  const agua = new THREE.Mesh(new THREE.PlaneGeometry(0.38, 0.28), matAgua);
+  agua.rotation.x = -Math.PI / 2;
+  agua.position.set(0, 0.355, 0);
+  grupo.add(agua);
+
+  // zabuton (almofada): tecido índigo fosco, onde o pintor senta.
+  const matTecido = new THREE.MeshStandardMaterial({ color: 0x3f4b66, roughness: 0.95, metalness: 0 });
+  const zabuton = new THREE.Mesh(new THREE.BoxGeometry(0.52, 0.08, 0.52), matTecido);
+  zabuton.position.set(0, 0.04, 0.62); // do lado da entrada (POV sentado da v9)
+  zabuton.castShadow = true;
+  zabuton.receiveShadow = true;
+  grupo.add(zabuton);
+
+  return grupo;
 }
 
 // ---------------------------------------------------------------------------
