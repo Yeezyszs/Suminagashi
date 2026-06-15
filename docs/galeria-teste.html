@@ -17,20 +17,22 @@
 <body>
   <canvas id="galeria"></canvas>
   <script type="module">
-    import { criarGaleria } from './js/galeria.js';
-    const g = criarGaleria(document.getElementById('galeria'));
+    import { criarGaleria, instalarNavegacao } from './js/galeria.js';
+    const canvas = document.getElementById('galeria');
+    const g = criarGaleria(canvas);
+    const reduz = matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const nav = instalarNavegacao(canvas, g, reduz);
     addEventListener('resize', () => g.redimensionar());
-    // Órbita lenta só para avaliar a sala (Fase 1: sem POV ainda).
-    let t = 0;
-    function loop() {
-      t += 0.0015;
-      const raio = 1.3;
-      g.camera.position.set(Math.sin(t) * raio, 1.5, 1.9);
-      g.camera.lookAt(0.2, 1.1, -2.4);
+    // Fase 2: POV navegável — arraste para olhar, toque para caminhar.
+    let anterior = null;
+    function loop(agora) {
+      const dt = anterior === null ? 0 : Math.min((agora - anterior) / 1000, 1 / 30);
+      anterior = agora;
+      nav.atualizar(dt);
       g.render();
       requestAnimationFrame(loop);
     }
-    loop();
+    requestAnimationFrame(loop);
   </script>
 </body>
 </html>

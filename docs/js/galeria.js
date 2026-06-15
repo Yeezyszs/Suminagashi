@@ -317,16 +317,18 @@ function criarTokonoma(matMadeira, matMadeiraEsc, matParede) {
   plat.receiveShadow = true;
   grupo.add(plat);
 
-  // toko-bashira: o pilar característico na borda da abertura (lado do
-  // centro do cômodo), do chão até a viga.
+  // toko-bashira: o pilar característico na borda da abertura, do chão até
+  // a viga. Fica À FRENTE do plano da parede (z + 0.06) — se ficasse NO
+  // plano, atravessava a parede e brigava por pixel (z-fighting no batente).
   const pilar = new THREE.Mesh(new THREE.BoxGeometry(0.1, aAb, 0.1), matMadeiraEsc);
-  pilar.position.set(xE, aAb / 2, zParede);
+  pilar.position.set(xE, aAb / 2, zParede + 0.06);
   pilar.castShadow = true;
   grupo.add(pilar);
 
-  // otoshigake: a viga rebaixada que coroa a abertura
-  const viga = new THREE.Mesh(new THREE.BoxGeometry(lar + 0.2, 0.16, 0.12), matMadeiraEsc);
-  viga.position.set(cx, aAb + 0.02, zParede);
+  // otoshigake: a viga rebaixada que coroa a abertura — também à frente da
+  // parede e do painel de cima, para não brigar com eles.
+  const viga = new THREE.Mesh(new THREE.BoxGeometry(lar + 0.22, 0.16, 0.12), matMadeiraEsc);
+  viga.position.set(cx, aAb + 0.01, zParede + 0.07);
   viga.castShadow = true;
   grupo.add(viga);
 
@@ -407,4 +409,117 @@ export function criarGaleria(canvas) {
 
   redimensionar();
   return { render, redimensionar, dispose, camera, cena, luz, renderer };
+}
+
+// ---------------------------------------------------------------------------
+// Navegação em primeira pessoa (contemplativa, à prova de enjoo)
+//
+// Dois gestos só, iguais no mouse e no toque:
+//   - ARRASTAR  → olhar ao redor (gira yaw/pitch; pitch limitado, sem rolar)
+//   - TOCAR/CLICAR (sem arrastar) → caminhar suavemente ATÉ aquele ponto
+//     (raycast no chão/parede/obra). Clicar numa obra = aproximar-se dela.
+// Não há WASD nem corrida: é uma "caminhada assistida", mais quieta e sem
+// balanço de câmera (a metáfora do templo pede contemplação, não FPS).
+// ---------------------------------------------------------------------------
+
+const ALTURA_OLHO = 1.5; // altura dos olhos (m)
+const SENS_OLHAR = 0.0042; // rad por pixel arrastado
+const PITCH_LIMITE = 0.5; // ~28°: não dá para olhar o teto/chão por inteiro
+const LIMIAR_ARRASTE = 6; // px: abaixo disso, é um toque (caminhar)
+const VEL_CAMINHAR = 2.2; // suavização do deslocamento (maior = mais rápido)
+const DIST_PARADA = 1.9; // para a esta distância do ponto clicado (m)
+const MARGEM_PAREDE = 0.8; // não encosta nas paredes
+
+/**
+ * Instala a navegação num canvas sobre uma galeria. Retorna { atualizar(dt) }
+ * — chamar uma vez por quadro antes de render.
+ */
+export function instalarNavegacao(canvas, galeria, reduzMovimento) {
+  const { camera } = galeria;
+
+  // Estado: yaw=0 olha para o fundo (−Z, o tokonoma); pitch levemente baixo.
+  let yaw = 0;
+  let pitch = -0.04;
+  const pos = new THREE.Vector3(camera.position.x, ALTURA_OLHO, camera.position.z);
+  const alvo = pos.clone(); // destino da caminhada
+  const raycaster = new THREE.Raycaster();
+  const dir = new THREE.Vector3();
+
+  let ponteiro = null;
+  let ultimoX = 0;
+  let ultimoY = 0;
+  let andouX = 0;
+  let andouY = 0;
+
+  canvas.addEventListener('pointerdown', (e) => {
+    if (ponteiro !== null) return;
+    ponteiro = e.pointerId;
+    canvas.setPointerCapture(e.pointerId);
+    ultimoX = e.clientX;
+    ultimoY = e.clientY;
+    andouX = andouY = 0;
+  });
+
+  canvas.addEventListener('pointermove', (e) => {
+    if (e.pointerId !== ponteiro) return;
+    const dx = e.clientX - ultimoX;
+    const dy = e.clientY - ultimoY;
+    ultimoX = e.clientX;
+    ultimoY = e.clientY;
+    andouX += Math.abs(dx);
+    andouY += Math.abs(dy);
+    // Arrastar gira a vista (resposta imediata, sem suavização — natural).
+    yaw -= dx * SENS_OLHAR;
+    pitch = Math.max(-PITCH_LIMITE, Math.min(PITCH_LIMITE, pitch - dy * SENS_OLHAR));
+  });
+
+  function terminar(e) {
+    if (e.pointerId !== ponteiro) return;
+    // Foi um TOQUE (quase sem mover) → caminhar até o ponto apontado.
+    if (andouX + andouY < LIMIAR_ARRASTE) caminharPara(e);
+    ponteiro = null;
+  }
+  canvas.addEventListener('pointerup', terminar);
+  canvas.addEventListener('pointercancel', terminar);
+
+  /** Raycast do ponto clicado para a cena; define o destino da caminhada. */
+  function caminharPara(e) {
+    const r = canvas.getBoundingClientRect();
+    const ndc = new THREE.Vector2(
+      ((e.clientX - r.left) / r.width) * 2 - 1,
+      -((e.clientY - r.top) / r.height) * 2 + 1
+    );
+    raycaster.setFromCamera(ndc, camera);
+    const hits = raycaster.intersectObjects(galeria.cena.children, true);
+    if (!hits.length) return;
+    const p = hits[0].point;
+
+    // Direção horizontal câmera→ponto; paramos DIST_PARADA antes do alvo
+    // (assim clicar numa parede/obra aproxima sem atravessar).
+    const d = new THREE.Vector3(p.x - pos.x, 0, p.z - pos.z);
+    const dist = d.length();
+    if (dist > 0.001) d.divideScalar(dist);
+    const avanco = Math.max(0, dist - DIST_PARADA);
+    const destino = new THREE.Vector3(pos.x + d.x * avanco, ALTURA_OLHO, pos.z + d.z * avanco);
+    // Mantém dentro da sala.
+    destino.x = Math.max(-LARGURA / 2 + MARGEM_PAREDE, Math.min(LARGURA / 2 - MARGEM_PAREDE, destino.x));
+    destino.z = Math.max(-PROFUND / 2 + MARGEM_PAREDE, Math.min(PROFUND / 2 - MARGEM_PAREDE, destino.z));
+    alvo.copy(destino);
+  }
+
+  function atualizar(dt) {
+    // Caminhada suave (ou imediata sob prefers-reduced-motion).
+    const k = reduzMovimento ? 1 : Math.min(1, dt * VEL_CAMINHAR);
+    pos.lerp(alvo, k);
+    camera.position.copy(pos);
+    // Aplica yaw/pitch (sem roll).
+    dir.set(
+      Math.sin(yaw) * Math.cos(pitch),
+      Math.sin(pitch),
+      -Math.cos(yaw) * Math.cos(pitch)
+    );
+    camera.lookAt(pos.x + dir.x, pos.y + dir.y, pos.z + dir.z);
+  }
+
+  return { atualizar };
 }
