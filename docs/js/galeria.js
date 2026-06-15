@@ -425,8 +425,12 @@ function criarLuz(cena) {
   sol.target.position.set(1.5, 0, -1);
   sol.castShadow = true;
   sol.shadow.mapSize.set(2048, 2048);
-  sol.shadow.radius = 6; // penumbra (PCFSoft)
-  sol.shadow.bias = -0.0006;
+  // Penumbra ampla (VSM): raio alto + muitas amostras de blur = sombra macia,
+  // sem o serrilhado da grade. normalBias afasta o acne das superfícies.
+  sol.shadow.radius = 11;
+  sol.shadow.blurSamples = 25;
+  sol.shadow.bias = -0.0003;
+  sol.shadow.normalBias = 0.04;
   const s = 7;
   sol.shadow.camera.left = -s;
   sol.shadow.camera.right = s;
@@ -527,7 +531,10 @@ export function criarGaleria(canvas) {
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
   renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, DPR_MAXIMO));
   renderer.shadowMap.enabled = true;
-  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  // VSM (variance shadow map): sombras de penumbra LARGA e macia — a luz que
+  // entra por papel é difusa, não cria a grade dura de "3D de jogo". O blur é
+  // controlado por shadow.radius + shadow.blurSamples (ver criarLuz).
+  renderer.shadowMap.type = THREE.VSMShadowMap;
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
   renderer.toneMappingExposure = 1.0;
 
