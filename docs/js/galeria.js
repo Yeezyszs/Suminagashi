@@ -51,57 +51,133 @@ function ruido(x, y) {
   return n - Math.floor(n);
 }
 
-/** Tatami: palha trançada fosca, com a borda escura característica das
- *  esteiras. Repetida no chão forma a grade de tatames. */
-function texturaTatami() {
+/** Desenha uma esteira de tatami numa região do canvas: palha trançada numa
+ *  direção (horizontal OU vertical, alternada entre esteiras vizinhas, como
+ *  no assentamento real) + a borda de tecido (heri) que a contorna. */
+function desenharEsteira(g, x, y, w, h, vertical, semente) {
+  // base de palha com leve variação de tom por esteira (envelhecimento)
+  const tom = 0.94 + 0.06 * ruido(semente, 21);
+  g.save();
+  g.beginPath();
+  g.rect(x, y, w, h);
+  g.clip();
+  g.fillStyle = `rgb(${Math.round(199 * tom)},${Math.round(190 * tom)},${Math.round(148 * tom)})`;
+  g.fillRect(x, y, w, h);
+  // trama: fios finos paralelos (igusa). A direção alterna por esteira.
+  const passo = 3;
+  if (vertical) {
+    for (let xx = x; xx < x + w; xx += passo) {
+      const t = 0.5 + 0.5 * Math.sin(xx * 0.6);
+      g.strokeStyle = `rgba(150,140,98,${0.10 + 0.07 * t})`;
+      g.beginPath(); g.moveTo(xx + 0.5, y); g.lineTo(xx + 0.5, y + h); g.stroke();
+    }
+  } else {
+    for (let yy = y; yy < y + h; yy += passo) {
+      const t = 0.5 + 0.5 * Math.sin(yy * 0.6);
+      g.strokeStyle = `rgba(150,140,98,${0.10 + 0.07 * t})`;
+      g.beginPath(); g.moveTo(x, yy + 0.5); g.lineTo(x + w, yy + 0.5); g.stroke();
+    }
+  }
+  // manchas suaves de uso
+  for (let i = 0; i < 90; i++) {
+    const rx = x + ruido(i + semente, 1) * w;
+    const ry = y + ruido(i + semente, 2) * h;
+    g.fillStyle = `rgba(120,110,75,${0.03 + 0.04 * ruido(i + semente, 3)})`;
+    g.fillRect(rx, ry, 2, 2);
+  }
+  g.restore();
+  // heri: a faixa de tecido escuro que emoldura a esteira (fina, discreta).
+  g.strokeStyle = 'rgba(58,52,38,0.6)';
+  g.lineWidth = 4;
+  g.strokeRect(x + 2, y + 2, w - 4, h - 4);
+}
+
+/** Tatami da SALA inteira: várias esteiras 2:1 lado a lado, com a trama
+ *  alternando 90° entre vizinhas (o xadrez característico) e o heri de cada
+ *  uma. Mapeada 1:1 no chão (sem repetição), então o assentamento é real,
+ *  não um ladrilho repetido. */
+function texturaTatami(cols, linhas) {
+  const c = document.createElement('canvas');
+  c.width = 1200;
+  c.height = 1000;
+  const g = c.getContext('2d');
+  g.fillStyle = '#bcb389';
+  g.fillRect(0, 0, c.width, c.height);
+  const cw = c.width / cols;
+  const ch = c.height / linhas;
+  for (let r = 0; r < linhas; r++) {
+    for (let col = 0; col < cols; col++) {
+      // a trama alterna em xadrez (esteiras vizinhas a 90°)
+      desenharEsteira(g, col * cw, r * ch, cw, ch, (col + r) % 2 === 0, col * 7 + r * 13 + 1);
+    }
+  }
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.anisotropy = 8; // a trama em ângulo raso não vira borrão
+  return tex;
+}
+
+/** Parede de reboco (terra/argila): off-white quente com um mosqueado fino e
+ *  irregular, para não ser um chapado liso digital. */
+function texturaParede() {
   const c = document.createElement('canvas');
   c.width = c.height = 256;
   const g = c.getContext('2d');
-  g.fillStyle = '#c7be94';
+  g.fillStyle = '#e6e0cf';
   g.fillRect(0, 0, 256, 256);
-  // trama: fios finos numa direção (a palha corre num sentido)
-  for (let y = 0; y < 256; y += 2) {
-    const t = 0.5 + 0.5 * Math.sin(y * 0.6);
-    g.strokeStyle = `rgba(150,140,98,${0.08 + 0.06 * t})`;
-    g.beginPath();
-    g.moveTo(0, y + 0.5);
-    g.lineTo(256, y + 0.5);
-    g.stroke();
+  // mosqueado de argila: manchas claras e escuras muito sutis
+  for (let i = 0; i < 1400; i++) {
+    const x = ruido(i, 31) * 256;
+    const y = ruido(i, 32) * 256;
+    const d = ruido(i, 33);
+    const claro = d > 0.5;
+    const a = 0.04 + 0.05 * ruido(i, 34);
+    g.fillStyle = claro ? `rgba(255,250,238,${a})` : `rgba(150,138,112,${a})`;
+    g.fillRect(x, y, 1 + ruido(i, 35) * 2, 1 + ruido(i, 36) * 2);
   }
-  // leve variação de manchas
-  for (let i = 0; i < 400; i++) {
-    const rx = ruido(i, 1) * 256;
-    const ry = ruido(i, 2) * 256;
-    g.fillStyle = `rgba(120,110,75,${0.03 + 0.04 * ruido(i, 3)})`;
-    g.fillRect(rx, ry, 2, 2);
-  }
-  // borda da esteira (faixa de tecido) — fina e discreta, não pesada
-  g.strokeStyle = 'rgba(60,54,40,0.55)';
-  g.lineWidth = 2.5;
-  g.strokeRect(1.5, 1.5, 253, 253);
   const tex = new THREE.CanvasTexture(c);
   tex.colorSpace = THREE.SRGBColorSpace;
   tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
   return tex;
 }
 
-/** Madeira: veios horizontais com variação de tom; fosca, nada plástica. */
+/** Madeira: veios horizontais orgânicos com variação de tom, alguns nós e um
+ *  leve desgaste — fosca, nada plástica. */
 function texturaMadeira(claraHex) {
   const c = document.createElement('canvas');
   c.width = c.height = 256;
   const g = c.getContext('2d');
   g.fillStyle = claraHex;
   g.fillRect(0, 0, 256, 256);
-  for (let i = 0; i < 70; i++) {
+  // manchas largas de tom (a madeira não é de cor uniforme)
+  for (let i = 0; i < 24; i++) {
+    const y = ruido(i, 41) * 256;
+    g.fillStyle = `rgba(90,66,38,${0.03 + 0.04 * ruido(i, 42)})`;
+    g.fillRect(0, y, 256, 8 + ruido(i, 43) * 40);
+  }
+  // veios: linhas onduladas, densidade e fase variadas
+  for (let i = 0; i < 90; i++) {
     const y = ruido(i, 7) * 256;
-    const esc = 0.06 + 0.16 * ruido(i, 9);
-    g.strokeStyle = `rgba(90,66,38,${esc})`;
-    g.lineWidth = 0.5 + ruido(i, 11) * 2;
+    const esc = 0.05 + 0.16 * ruido(i, 9);
+    g.strokeStyle = `rgba(86,62,34,${esc})`;
+    g.lineWidth = 0.4 + ruido(i, 11) * 1.8;
+    const amp = 1 + ruido(i, 12) * 3;
     g.beginPath();
     g.moveTo(0, y);
-    // veio levemente ondulado
-    for (let xx = 0; xx <= 256; xx += 16) g.lineTo(xx, y + Math.sin(xx * 0.05 + i) * 1.5);
+    for (let xx = 0; xx <= 256; xx += 12) g.lineTo(xx, y + Math.sin(xx * 0.05 + i) * amp);
     g.stroke();
+  }
+  // alguns nós (olhos da madeira): elipses concêntricas discretas
+  for (let k = 0; k < 3; k++) {
+    const nx = ruido(k, 51) * 256;
+    const ny = ruido(k, 52) * 256;
+    for (let r = 1; r < 5; r++) {
+      g.strokeStyle = `rgba(70,48,26,${0.16 - r * 0.02})`;
+      g.lineWidth = 0.8;
+      g.beginPath();
+      g.ellipse(nx, ny, r * 2.2, r * 3.4, 0, 0, Math.PI * 2);
+      g.stroke();
+    }
   }
   const tex = new THREE.CanvasTexture(c);
   tex.colorSpace = THREE.SRGBColorSpace;
@@ -142,12 +218,13 @@ function criarCena(renderer) {
   cena.fog = new THREE.FogExp2(FOG_COR, FOG_DENSIDADE);
 
   // --- materiais (reusados; foscos, não-metálicos) -----------------------
+  // Tatami da sala: 3×5 esteiras de 2,0×1,0 m (proporção real 2:1), trama
+  // alternada e heri — mapeado 1:1 (sem repetição de ladrilho).
   const matTatami = new THREE.MeshStandardMaterial({
-    map: texturaTatami(),
-    roughness: 0.95,
+    map: texturaTatami(3, 5),
+    roughness: 0.96,
     metalness: 0,
   });
-  matTatami.map.repeat.set(LARGURA / 1.8, PROFUND / 1.8); // esteiras calmas, ~1.8m
 
   const matMadeira = new THREE.MeshStandardMaterial({
     map: texturaMadeira('#c9a66b'),
@@ -169,7 +246,8 @@ function criarCena(renderer) {
   });
   matTeto.map.repeat.set(7, 1);
   matTeto.map.wrapS = matTeto.map.wrapT = THREE.RepeatWrapping;
-  const matParede = new THREE.MeshStandardMaterial({ color: COR_PAREDE, roughness: 1, metalness: 0 });
+  const matParede = new THREE.MeshStandardMaterial({ map: texturaParede(), roughness: 1, metalness: 0 });
+  matParede.map.repeat.set(3, 1.5); // o mosqueado de argila repete fino na parede
   const matShoji = new THREE.MeshStandardMaterial({
     map: texturaShoji(),
     emissive: new THREE.Color(0xfff4e0),
