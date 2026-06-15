@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+  <title>O Templo — Fase 1 (cômodo vazio)</title>
+  <!-- Three.js vendorado localmente, resolvido por import map (offline). -->
+  <script type="importmap">
+    { "imports": { "three": "./js/vendor/three.module.js" } }
+  </script>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body { height: 100%; overflow: hidden; background: #d8cdb8; }
+    #galeria { width: 100vw; height: 100vh; display: block; }
+  </style>
+</head>
+<body>
+  <canvas id="galeria"></canvas>
+  <script type="module">
+    import { criarGaleria } from './js/galeria.js';
+    const g = criarGaleria(document.getElementById('galeria'));
+    addEventListener('resize', () => g.redimensionar());
+    // Órbita lenta só para avaliar a sala (Fase 1: sem POV ainda).
+    let t = 0;
+    function loop() {
+      t += 0.0015;
+      const raio = 1.3;
+      g.camera.position.set(Math.sin(t) * raio, 1.5, 1.9);
+      g.camera.lookAt(0.2, 1.1, -2.4);
+      g.render();
+      requestAnimationFrame(loop);
+    }
+    loop();
+  </script>
+</body>
+</html>
