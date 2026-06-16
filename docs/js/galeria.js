@@ -352,7 +352,7 @@ function carregarTextura(dataUrl) {
  *  as hastes de madeira em cima e embaixo, como um pergaminho pendurado. A
  *  obra é levemente emissiva — legível de dia e à noite, como um quadro
  *  iluminado. */
-function criarKakemono(textura, matMadeira, matMadeiraEsc, destaque, caligrafiaTextura) {
+function criarKakemono(textura, matMadeira, matMadeiraEsc, destaque) {
   const grupo = new THREE.Group();
   const aspecto = textura.image ? textura.image.width / textura.image.height : 1.6;
   const w = destaque ? 0.86 : 0.72; // a fundação um pouco maior
@@ -384,40 +384,6 @@ function criarKakemono(textura, matMadeira, matMadeiraEsc, destaque, caligrafiaT
     r.castShadow = true;
     grupo.add(r);
   }
-  // Caligrafia traçada do usuário (se houver): um pergaminho-irmão estreito,
-  // ao lado direito da obra, como a inscrição de um haiku ao lado da pintura.
-  // O PNG é transparente (só os traços), então vai sobre um fundo de washi
-  // levemente emissivo, legível de dia e à noite.
-  if (caligrafiaTextura) {
-    const aspCal = caligrafiaTextura.image
-      ? caligrafiaTextura.image.width / caligrafiaTextura.image.height
-      : 0.45;
-    const wIns = 0.18;
-    const hIns = wIns / aspCal;
-    const xIns = (w + 0.07) / 2 + 0.03 + wIns / 2;
-    const matWashi = new THREE.MeshStandardMaterial({
-      color: 0xf3ecda, emissive: 0xf3ecda, emissiveIntensity: 0.2, roughness: 1, metalness: 0,
-    });
-    const fundoIns = new THREE.Mesh(new THREE.PlaneGeometry(wIns + 0.03, hIns + 0.03), matWashi);
-    fundoIns.position.set(xIns, 0, 0.006);
-    grupo.add(fundoIns);
-    const matIns = new THREE.MeshStandardMaterial({
-      map: caligrafiaTextura, transparent: true, roughness: 1, metalness: 0, depthWrite: false,
-    });
-    const ins = new THREE.Mesh(new THREE.PlaneGeometry(wIns, hIns), matIns);
-    ins.position.set(xIns, 0, 0.013);
-    grupo.add(ins);
-    // hastinhas em cima e embaixo (o pergaminho-irmão)
-    const haste2 = new THREE.CylinderGeometry(0.01, 0.01, wIns + 0.06, 6);
-    for (const dy of [hIns / 2 + 0.03, -hIns / 2 - 0.03]) {
-      const r = new THREE.Mesh(haste2, matMadeira);
-      r.rotation.z = Math.PI / 2;
-      r.position.set(xIns, dy, 0.013);
-      r.castShadow = true;
-      grupo.add(r);
-    }
-  }
-
   // Guarda o tamanho da OBRA (sem moldura) — o foco usa a altura para
   // calcular a que distância a câmera a enquadra na tela.
   grupo.userData.tamanho = { w, h };
@@ -872,8 +838,7 @@ export function criarGaleria(canvas) {
       if (!slot) continue; // excedeu a capacidade do cômodo (Fase 5: novo cômodo)
       const tex = await carregarTextura(o.imagem);
       if (!tex) continue;
-      const calTex = o.caligrafia ? await carregarTextura(o.caligrafia) : null;
-      const km = criarKakemono(tex, matMadeira, matMadeiraEsc, o.ehFundacao, calTex);
+      const km = criarKakemono(tex, matMadeira, matMadeiraEsc, o.ehFundacao);
       km.position.set(slot.pos[0], slot.pos[1], slot.pos[2]);
       km.rotation.y = slot.ry;
       grupoObras.add(km);

@@ -19,8 +19,7 @@ import {
 } from './luz.js';
 import { gerarNome, gerarHaiku, gerarPoema, sementeDaObra, horaFormatada, hash } from './estante.js';
 import { MODOS, hexParaRgb } from './modos.js';
-import { selecionarHaiku, temperaturaDaCalidez } from './haiku.js';
-import { instalarCaligrafia } from './caligrafia.js';
+import { HAIKUS, selecionarHaiku, temperaturaDaCalidez } from './haiku.js';
 
 // ---------------------------------------------------------------------------
 // Constantes (chutes iniciais agrupados; calibrar no tato)
@@ -390,20 +389,6 @@ function zerarEnergia() {
   energiaSoma = energiaN = energiaPico = 0;
 }
 
-// A etapa de caligrafia (a tira de traçar o haiku) do ritual de guardar.
-const caligrafia = instalarCaligrafia({
-  raiz: document.getElementById('caligrafia'),
-  papel: document.getElementById('caligrafia-papel'),
-  guia: document.getElementById('caligrafia-guia'),
-  tinta: document.getElementById('caligrafia-tinta'),
-  romaji: document.getElementById('caligrafia-romaji'),
-  pt: document.getElementById('caligrafia-pt'),
-  autor: document.getElementById('caligrafia-autor'),
-  desfazer: document.getElementById('caligrafia-desfazer'),
-  limpar: document.getElementById('caligrafia-limpar'),
-  pular: document.getElementById('caligrafia-pular'),
-  selar: document.getElementById('caligrafia-selar'),
-});
 const LIMIAR_LUA = 12; // nº de estrelas (cosmos) a partir do qual o haiku pode pender p/ "lua"
 
 /**
@@ -602,10 +587,10 @@ async function guardar(ehFundacao = false) {
   const dataUrl = capturaParaDataUrl(captura);
   const tom = extrairTomFundacao(captura.pixels, captura.w, captura.h, hexParaRgb(modo.fundo));
 
-  // 1.5 Caligrafia: o site lê a obra (retrato) + a data e ESCOLHE um haiku
-  // clássico de melhor clima; o usuário o traça por cima (ou pula). Antes do
-  // selo. A identidade da obra (criadaEm/semente) é fixada aqui para o haiku e
-  // o batismo concordarem.
+  // 1.5 O site LÊ a obra (retrato) + a data e ESCOLHE um haiku clássico de
+  // melhor clima — silenciosamente; ele é revelado ao aproximar da obra no
+  // templo. A identidade da obra (criadaEm/semente) é fixada aqui para o haiku
+  // e o batismo concordarem.
   const criadaEm = Date.now();
   const semente = sementeDaObra({ modo: idModo, calidez: tom.calidez, timestamp: criadaEm, estrelas: estrelas.length });
   const retrato = {
@@ -615,17 +600,16 @@ async function guardar(ehFundacao = false) {
   };
   const haiku = selecionarHaiku(retrato, new Date(criadaEm), semente);
   zerarEnergia();
-  const tracos = await caligrafia.abrir(haiku); // dataURL PNG dos traços, ou null (pulou)
 
-  // 2. Selar: o hanko desce e carimba (lacra obra + caligrafia).
+  // 2. Selar: o hanko desce e carimba.
   baterHanko();
   await dorme(reduz ? 140 : GUARDAR_SELAR);
 
   // 3 + 4. Enrolar em pergaminho e recolher até a aba (só com animação).
   if (!reduz) await enrolarPergaminho(dataUrl);
 
-  // Registra a obra na estante (modo, batismo, haiku clássico + caligrafia).
-  await registrarObra(dataUrl, tom.calidez, ehFundacao, { criadaEm, semente, haiku, tracos });
+  // Registra a obra na estante (modo, batismo, haiku clássico escolhido).
+  await registrarObra(dataUrl, tom.calidez, ehFundacao, { criadaEm, semente, haiku });
 
   // 5. Limpa, cena escondida, volta ao ocioso.
   fluido.desbotar(1);
@@ -725,37 +709,25 @@ async function registrarObra(dataUrl, calidez, ehFundacao, extras = {}) {
     criadaEm,
     ehFundacao,
   };
-  // Haiku CLÁSSICO escolhido (o que o usuário traçou) — campos próprios, sem
-  // colidir com o `haiku` combinatório do batismo.
+  // Haiku CLÁSSICO escolhido (revelado no foco da galeria) — campos próprios,
+  // sem colidir com o `haiku` combinatório do batismo. jpLinhas = 3 versos
+  // (para renderizar em colunas limpas).
   const hk = extras.haiku;
   if (hk) {
     obra.haikuId = hk.id;
     obra.haikuJp = hk.jp;
+    obra.haikuJpLinhas = hk.jpLinhas;
     obra.haikuRomaji = hk.romaji;
     obra.haikuPt = hk.pt;
     obra.haikuAutor = hk.autor;
   }
-  obra.temCaligrafia = !!extras.tracos;
   try {
     await idbGravar(id, dataUrl);
-    if (extras.tracos) await idbGravar(id + '#cal', extras.tracos); // caligrafia separada
   } catch {
     obra.imagem = dataUrl; // fallback: embutida (sem IndexedDB)
-    if (extras.tracos) obra.caligrafia = extras.tracos;
   }
   obras.push(obra);
   salvarEstante();
-}
-
-/** Recupera a caligrafia traçada de uma obra (PNG transparente), ou null. */
-async function obterCaligrafia(obra) {
-  if (obra.caligrafia) return obra.caligrafia; // fallback embutido
-  if (!obra.temCaligrafia) return null;
-  try {
-    return await idbLer(obra.id + '#cal');
-  } catch {
-    return null;
-  }
 }
 
 /** Recupera a imagem de uma obra: embutida (obras antigas/fallback) ou
@@ -781,7 +753,6 @@ function salvarEstante() {
     if (i >= 0) {
       const [removida] = obras.splice(i, 1);
       idbApagar(removida.id); // não deixa a imagem órfã no banco
-      idbApagar(removida.id + '#cal'); // nem a caligrafia
       salvarEstante();
     }
     // Se só a fundação resta e ainda não cabe, desiste em silêncio: a
@@ -1089,8 +1060,10 @@ async function repovoarTemplo() {
       haiku: o.haiku,
       ehFundacao: o.ehFundacao,
       imagem: await obterImagem(o),
-      caligrafia: await obterCaligrafia(o), // traços do usuário (pergaminho-irmão)
+      // Haiku clássico escolhido — revelado no foco (japonês em colunas + PT).
+      haikuId: o.haikuId,
       haikuJp: o.haikuJp,
+      haikuJpLinhas: o.haikuJpLinhas,
       haikuPt: o.haikuPt,
       haikuAutor: o.haikuAutor,
     }))
@@ -1140,11 +1113,17 @@ function quadroGaleria(t) {
   if (obraFoco) {
     if (focoIdAtual !== obraFoco.id) {
       focoIdAtual = obraFoco.id;
-      if (obraFoco.haikuJp) {
-        // Obra com haiku CLÁSSICO traçado: revela o haiku + tradução + autor.
-        focoPoemaJa.textContent = obraFoco.haikuJp;
-        focoPoemaPt.innerHTML = (obraFoco.haikuPt || '').replace(/ \/ /g, '<br>');
-        focoAutor.textContent = obraFoco.haikuAutor ? '— ' + obraFoco.haikuAutor : '';
+      if (obraFoco.haikuId || obraFoco.haikuJp) {
+        // Obra com haiku CLÁSSICO: revela o haiku (japonês em 3 colunas) +
+        // tradução + autor. As 3 linhas vêm da obra; se faltarem (obra antiga),
+        // busca na coleção pelo id; em último caso, o texto corrido.
+        const clas = obraFoco.haikuId ? HAIKUS.find((h) => h.id === obraFoco.haikuId) : null;
+        const linhas = obraFoco.haikuJpLinhas || (clas && clas.jpLinhas) || [obraFoco.haikuJp];
+        const pt = obraFoco.haikuPt || (clas && clas.pt) || '';
+        const autor = obraFoco.haikuAutor || (clas && clas.autor) || '';
+        focoPoemaJa.innerHTML = linhas.join('<br>');
+        focoPoemaPt.innerHTML = pt.replace(/ \/ /g, '<br>');
+        focoAutor.textContent = autor ? '— ' + autor : '';
       } else {
         // Fallback (obras antigas): o poema bilíngue gerado da galeria.
         const m = MODOS[obraFoco.modo] || MODOS.agua;
@@ -1215,7 +1194,6 @@ botaoApagarFoco.addEventListener('click', async () => {
   if (i >= 0) {
     const [removida] = obras.splice(i, 1);
     idbApagar(removida.id); // libera a imagem do banco (best-effort)
-    idbApagar(removida.id + '#cal'); // e a caligrafia
     salvarEstante();
   }
   navGaleria.sairFoco();

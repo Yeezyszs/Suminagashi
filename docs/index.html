@@ -66,28 +66,6 @@
   <!-- Mensagem cerimonial do fim do ritual de entrada. -->
   <p id="aviso" hidden>esta sala é sua.</p>
 
-  <!-- Caligrafia: dentro do ritual de guardar, ANTES do selo. Uma tira de
-       papel washi com o haiku escolhido em kanji "fantasma" (texto do sistema,
-       vertical). O usuário traça por cima com o pincel sumi (canvas de tinta);
-       o guia vive no DOM, então não entra na imagem capturada. -->
-  <div id="caligrafia" hidden>
-    <div id="caligrafia-papel">
-      <div id="caligrafia-guia" lang="ja" aria-hidden="true"></div>
-      <canvas id="caligrafia-tinta"></canvas>
-    </div>
-    <div id="caligrafia-info">
-      <span id="caligrafia-romaji"></span>
-      <span id="caligrafia-pt"></span>
-      <span id="caligrafia-autor"></span>
-    </div>
-    <div id="caligrafia-acoes">
-      <button id="caligrafia-desfazer">desfazer</button>
-      <button id="caligrafia-limpar">limpar</button>
-      <button id="caligrafia-pular">pular</button>
-      <button id="caligrafia-selar">selar</button>
-    </div>
-  </div>
-
   <!-- Estante (tokonoma): expõe UMA obra por vez. Conteúdo montado pelo
        main.js a partir de estante.v1. -->
   <section id="estante" hidden aria-label="estante">

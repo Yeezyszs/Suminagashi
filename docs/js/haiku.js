@@ -1,15 +1,16 @@
-// haiku.js — a caligrafia do ritual: coleção curada de haikus clássicos +
-// a seleção que "lê" a obra e escolhe o poema de melhor clima.
+// haiku.js — coleção curada de haikus clássicos + a seleção que "lê" a obra e
+// escolhe o poema de melhor clima. O haiku escolhido é mostrado ao aproximar
+// da obra na galeria 3D (japonês em colunas + tradução + autor).
 //
 // POR QUE UM MÓDULO JS (e não um .json carregado por fetch): o projeto abre
 // offline e até por file://, onde fetch() de um arquivo local falha. Como ES
 // module, os dados entram sem rede nenhuma — fiel ao "nada baixado em runtime".
 //
-// ⚠️ TEXTO TRAÇÁVEL: o campo `jp` é o que o usuário cobre com o pincel, então
-// a ortografia foi CONFERIDA contra fontes confiáveis (Wikipédia japonesa,
-// páginas acadêmicas/educacionais) em 16/06/2026. Todos os `jp` são formas
-// canônicas atestadas. Domínio público (mestres Edo/Meiji, +1 século de
-// falecidos). Expandir a coleção para ~30-50 itens melhora o encaixe.
+// ⚠️ TEXTO EXIBIDO: o campo `jp` (e `jpLinhas`, os 3 versos 5-7-5) é mostrado
+// ao usuário, então a ortografia foi CONFERIDA contra fontes confiáveis
+// (Wikipédia japonesa, páginas acadêmicas/educacionais) em 16/06/2026. Todos
+// os `jp` são formas canônicas atestadas. Domínio público (mestres Edo/Meiji,
+// +1 século de falecidos). Expandir a coleção para ~30-50 itens melhora o encaixe.
 
 import { mulberry32 } from './prng.js';
 
@@ -32,6 +33,7 @@ export const HAIKUS = [
     id: 'basho-furuike',
     autor: 'Matsuo Bashō',
     jp: '古池や蛙飛び込む水の音',
+    jpLinhas: ['古池や', '蛙飛び込む', '水の音'],
     romaji: 'furuike ya / kawazu tobikomu / mizu no oto',
     pt: 'o velho tanque — / uma rã mergulha: / o som da água',
     tags: { estacao: 'primavera', imagem: ['agua', 'animal'], energia: 'sereno', temperatura: 'frio' },
@@ -40,6 +42,7 @@ export const HAIKUS = [
     id: 'basho-natsukusa',
     autor: 'Matsuo Bashō',
     jp: '夏草や兵どもが夢の跡',
+    jpLinhas: ['夏草や', '兵どもが', '夢の跡'],
     romaji: 'natsukusa ya / tsuwamonodomo ga / yume no ato',
     pt: 'ervas de verão — / tudo o que restou / dos sonhos dos guerreiros',
     tags: { estacao: 'verao', imagem: ['campo'], energia: 'sereno', temperatura: 'neutro' },
@@ -50,6 +53,7 @@ export const HAIKUS = [
     id: 'basho-shizukasa',
     autor: 'Matsuo Bashō',
     jp: '閑さや岩にしみ入る蝉の声',
+    jpLinhas: ['閑さや', '岩にしみ入る', '蝉の声'],
     romaji: 'shizukasa ya / iwa ni shimiiru / semi no koe',
     pt: 'que quietude — / penetra na rocha / o canto das cigarras',
     tags: { estacao: 'verao', imagem: ['animal', 'montanha'], energia: 'sereno', temperatura: 'quente' },
@@ -58,6 +62,7 @@ export const HAIKUS = [
     id: 'basho-tabi-ni-yande',
     autor: 'Matsuo Bashō',
     jp: '旅に病んで夢は枯野をかけ廻る',
+    jpLinhas: ['旅に病んで', '夢は枯野を', 'かけ廻る'],
     romaji: 'tabi ni yande / yume wa kareno wo / kakemeguru',
     pt: 'doente em viagem — / meus sonhos vagueiam / por campos secos',
     tags: { estacao: 'inverno', imagem: ['campo'], energia: 'sereno', temperatura: 'frio' },
@@ -66,6 +71,7 @@ export const HAIKUS = [
     id: 'buson-haru-no-umi',
     autor: 'Yosa Buson',
     jp: '春の海終日のたりのたりかな',
+    jpLinhas: ['春の海', '終日のたり', 'のたりかな'],
     romaji: 'haru no umi / hinemosu notari / notari kana',
     pt: 'mar de primavera — / o dia inteiro subindo / e descendo, sereno',
     tags: { estacao: 'primavera', imagem: ['agua'], energia: 'sereno', temperatura: 'neutro' },
@@ -74,6 +80,7 @@ export const HAIKUS = [
     id: 'buson-na-no-hana',
     autor: 'Yosa Buson',
     jp: '菜の花や月は東に日は西に',
+    jpLinhas: ['菜の花や', '月は東に', '日は西に'],
     romaji: 'na no hana ya / tsuki wa higashi ni / hi wa nishi ni',
     pt: 'campos de colza — / a lua a leste, / o sol a oeste',
     tags: { estacao: 'primavera', imagem: ['flor', 'lua'], energia: 'sereno', temperatura: 'quente' },
@@ -82,6 +89,7 @@ export const HAIKUS = [
     id: 'buson-samidare',
     autor: 'Yosa Buson',
     jp: '五月雨や大河を前に家二軒',
+    jpLinhas: ['五月雨や', '大河を前に', '家二軒'],
     romaji: 'samidare ya / taiga wo mae ni / ie niken',
     pt: 'chuvas de verão — / diante do grande rio, / duas casinhas',
     tags: { estacao: 'verao', imagem: ['agua'], energia: 'agitado', temperatura: 'frio' },
@@ -90,6 +98,7 @@ export const HAIKUS = [
     id: 'issa-suzume-no-ko',
     autor: 'Kobayashi Issa',
     jp: '雀の子そこのけそこのけお馬が通る',
+    jpLinhas: ['雀の子', 'そこのけそこのけ', 'お馬が通る'],
     romaji: 'suzume no ko / sokonoke sokonoke / o-uma ga tooru',
     pt: 'filhote de pardal, / sai da frente, sai da frente — / lá vem o cavalo',
     tags: { estacao: 'primavera', imagem: ['animal'], energia: 'vivo', temperatura: 'quente' },
@@ -98,6 +107,7 @@ export const HAIKUS = [
     id: 'issa-meigetsu',
     autor: 'Kobayashi Issa',
     jp: '名月を取ってくれろと泣く子かな',
+    jpLinhas: ['名月を', '取ってくれろと', '泣く子かな'],
     romaji: 'meigetsu wo / totte kurero to / naku ko kana',
     pt: '"me dá a lua cheia!" — / chora a criança / apontando pro céu',
     tags: { estacao: 'outono', imagem: ['lua'], energia: 'vivo', temperatura: 'neutro' },
@@ -106,6 +116,7 @@ export const HAIKUS = [
     id: 'issa-yasegaeru',
     autor: 'Kobayashi Issa',
     jp: '痩蛙まけるな一茶これにあり',
+    jpLinhas: ['痩蛙', 'まけるな一茶', 'これにあり'],
     romaji: 'yasegaeru / makeru na Issa / kore ni ari',
     pt: 'rã magrela, / não desista — / o Issa está aqui',
     tags: { estacao: 'primavera', imagem: ['animal'], energia: 'vivo', temperatura: 'neutro' },
@@ -114,6 +125,7 @@ export const HAIKUS = [
     id: 'chiyo-asagao',
     autor: 'Fukuda Chiyo-ni',
     jp: '朝顔に釣瓶とられてもらひ水',
+    jpLinhas: ['朝顔に', '釣瓶とられて', 'もらひ水'],
     romaji: 'asagao ni / tsurube torarete / morai mizu',
     pt: 'a corriola tomou / o balde do poço — / vou pedir água emprestada',
     tags: { estacao: 'outono', imagem: ['flor', 'agua'], energia: 'sereno', temperatura: 'frio' },
@@ -122,6 +134,7 @@ export const HAIKUS = [
     id: 'shiki-kaki',
     autor: 'Masaoka Shiki',
     jp: '柿くへば鐘が鳴るなり法隆寺',
+    jpLinhas: ['柿くへば', '鐘が鳴るなり', '法隆寺'],
     romaji: 'kaki kueba / kane ga naru nari / Hōryūji',
     pt: 'mordo um caqui — / e o sino ressoa: / templo de Hōryū',
     tags: { estacao: 'outono', imagem: ['templo', 'flor'], energia: 'sereno', temperatura: 'quente' },
@@ -130,6 +143,7 @@ export const HAIKUS = [
     id: 'shiki-yuki',
     autor: 'Masaoka Shiki',
     jp: 'いくたびも雪の深さを尋ねけり',
+    jpLinhas: ['いくたびも', '雪の深さを', '尋ねけり'],
     romaji: 'ikutabi mo / yuki no fukasa wo / tazune keri',
     pt: 'tantas e tantas vezes / perguntei o quanto / a neve já fundou',
     tags: { estacao: 'inverno', imagem: ['neve'], energia: 'sereno', temperatura: 'frio' },
@@ -138,6 +152,7 @@ export const HAIKUS = [
     id: 'basho-kareeda',
     autor: 'Matsuo Bashō',
     jp: '枯枝に烏のとまりけり秋の暮',
+    jpLinhas: ['枯枝に', '烏のとまりけり', '秋の暮'],
     romaji: 'kareeda ni / karasu no tomari keri / aki no kure',
     pt: 'num galho seco / um corvo pousou — / entardecer de outono',
     tags: { estacao: 'outono', imagem: ['animal', 'campo'], energia: 'sereno', temperatura: 'neutro' },
