@@ -3,7 +3,7 @@
 Registro do que já foi construído, em que pé está cada coisa e o que vem a
 seguir. Documento vivo: atualizar a cada marco.
 
-_Última atualização: 16/06/2026 (caligrafia) — branch `main`_
+_Última atualização: 16/06/2026 (haiku da obra) — branch `main`_
 
 ---
 
@@ -61,7 +61,7 @@ tom educacional. UI mínima e em português.
 | 16 | `dc95793`+ | **v6: O Templo (3D)** | Galeria 3D em 1ª pessoa (Three.js vendorado, import dinâmico). Cômodo tokonoma, navegação POV à prova de enjoo, luz viva por hora (`luzDaHora`), obras como kakemono, integração ateliê↔templo, focar+zoom+poema bilíngue, baixar/apagar no foco. |
 | 17 | `01bed7f`+ | **v8: Vestir o templo** | Sombras macias (VSM), materiais vividos (tatami real com heri/trama alternada, parede de argila, madeira orgânica) e mobília: tokonoma com arranjo, andon (luz quente noturna), mesa+almofada+bacia preparada para a v9. |
 | 18 | (perf) | **Movimentação + FPS** | Sombra sob demanda (não a 60fps), mapa menor/justo, qualidade adaptativa por FPS real; amortecimento de câmera independente de FPS. |
-| 19 | `4acfe78`+ | **Caligrafia: traçar o haiku** | Coleção curada de haikus clássicos (verificada) + seleção que lê a obra; tira de traçar (kanji fantasma + pincel sumi) no ritual de guardar; caligrafia salva e exibida na galeria 3D (pergaminho-irmão + tradução/autor no foco). |
+| 19 | `4acfe78`+ | **Haiku que lê a obra** | Coleção curada de haikus clássicos (verificada) + seleção que cruza o retrato da obra com as etiquetas; o haiku é revelado ao aproximar da obra no templo (japonês em 3 colunas + tradução + autor). _O traçado manual chegou a existir e foi removido (`f4ec254`) — não ficou funcional._ |
 
 ---
 
@@ -81,7 +81,6 @@ suminagashi/
       luz.js        # atmosfera 2D: ciclo do relógio + tom da fundação (puro)
       estante.js    # batismo: nome, haiku e poema locais, determinísticos
       haiku.js      # coleção curada de haikus clássicos + seleção que lê a obra
-      caligrafia.js # a tira de traçar o haiku (pincel sumi) do ritual de guardar
       galeria.js    # O TEMPLO: cena 3D (Three.js) — sala, luz por hora,
                     #   kakemono, foco/zoom, mobília. Carregado sob demanda.
       main.js       # orquestração, estados, modos, guardar, estante, templo
@@ -242,27 +241,29 @@ por **import dinâmico** só ao abrir o templo — o ateliê nunca o carrega.
 
 ---
 
-## Caligrafia: traçar o haiku (fecha o arco "pinta + batiza com as mãos")
+## O haiku que lê a obra
 
-Dentro do ritual de guardar, ANTES do selo: o site **lê a obra** (temperatura
-da calidez + energia do gesto + estação do dia + lua no cosmos) e **escolhe um
-haiku clássico** de domínio público de melhor clima (`haiku.js` —
-determinístico pela semente da obra). Surge uma **tira de papel** com o haiku em
-**kanji fantasma** (fonte mincho do sistema, vertical) e o usuário o **traça**
-com um pincel sumi (`caligrafia.js` — mini-canvas, NÃO o fluido); pode
-desfazer/limpar/pular/selar. Ao selar salva-se **só o traço** (PNG transparente).
+Ao guardar, o site **lê a obra** (temperatura da calidez + energia do gesto +
+estação do dia + lua no cosmos) e **escolhe um haiku clássico** de domínio
+público de melhor clima (`haiku.js` — determinístico pela semente da obra),
+silenciosamente. Ele é **revelado ao aproximar** da obra no templo: o japonês
+em 3 colunas (5-7-5) + a tradução PT + o autor.
 
 - [x] Coleção de 14 haikus (Bashō, Buson, Issa, Chiyo-ni, Shiki) — os `jp`
-      (texto traçável) **verificados contra fontes confiáveis** (Wikipédia JP,
-      páginas acadêmicas). Expansível para ~30-50.
+      **verificados contra fontes confiáveis** (Wikipédia JP, páginas
+      acadêmicas), com `jpLinhas` (3 versos) p/ render em colunas. Expansível
+      para ~30-50.
 - [x] Seleção pura e determinística (estação respeita o hemisfério; Sul por
       padrão). Testada com obras opostas.
-- [x] Persistência: a obra ganha `haikuId/Jp/Romaji/Pt/Autor`; a caligrafia
-      vai para o IndexedDB (`id#cal`), apagada junto com a obra.
-- [x] Galeria 3D: a caligrafia aparece como **pergaminho-irmão** ao lado da
-      pintura; o **foco** revela o haiku (vertical) + tradução PT + autor.
-- [x] `pular` gracioso; `prefers-reduced-motion`; fonte do sistema; offline.
-- [ ] Expandir a coleção; (futuro) modo de traço GUIADO (ordem dos kanji).
+- [x] Persistência: a obra ganha `haikuId/Jp/JpLinhas/Romaji/Pt/Autor`.
+- [x] Galeria 3D: o **foco** revela o haiku (3 colunas) + tradução PT + autor.
+- [x] `prefers-reduced-motion`; fonte do sistema; offline.
+- [ ] Expandir a coleção.
+
+> **Removido:** o **traçado manual** do kanji (uma tira de papel com o haiku
+> fantasma + pincel sumi, dentro do ritual de guardar) chegou a existir
+> (`caligrafia.js`), mas não ficou funcional e foi removido — ficou só a
+> seleção + a exibição do haiku.
 
 ---
 
