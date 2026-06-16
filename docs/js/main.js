@@ -949,6 +949,12 @@ let loopGaleria = null;
 let anteriorGaleria = null;
 let focoIdAtual = null; // id da obra focada (evita recompor o poema todo quadro)
 let confirmandoApagarFoco = false; // "apagar" pede confirmação (dois toques)
+// Qualidade adaptativa: monitora o FPS REAL por janela e baixa a qualidade
+// (DPR, sombra) se o quadro pesar. Só desce na sessão; reabrir o templo
+// restaura o nível cheio.
+let nivelQualidade = 0;
+let janelaInicio = null;
+let janelaQuadros = 0;
 
 /** Abre o templo: carrega o Three.js sob demanda (o ateliê segue leve),
  *  monta a cena uma vez, pendura as obras da coleção e pausa a água. */
@@ -969,6 +975,11 @@ async function abrirGaleria() {
 
   canvasGaleria.hidden = false;
   galeriaUI.hidden = false;
+  // Restaura a qualidade cheia a cada abertura (a queda é só da sessão).
+  nivelQualidade = 0;
+  janelaInicio = null;
+  janelaQuadros = 0;
+  galeria.definirQualidade(0);
   galeria.redimensionar();
   anteriorGaleria = null;
   loopGaleria = requestAnimationFrame(quadroGaleria);
@@ -1009,6 +1020,19 @@ function fecharGaleria() {
 function quadroGaleria(t) {
   const dt = anteriorGaleria === null ? 0 : Math.min((t - anteriorGaleria) / 1000, 1 / 30);
   anteriorGaleria = t;
+
+  // Monitor de FPS REAL (tempo de parede, não o dt limitado): se uma janela
+  // de ~1,2s ficar abaixo de 48fps, baixa um nível de qualidade.
+  if (janelaInicio === null) janelaInicio = t;
+  janelaQuadros++;
+  const decorrido = t - janelaInicio;
+  if (decorrido >= 1200) {
+    const fps = (janelaQuadros * 1000) / decorrido;
+    if (fps < 48 && nivelQualidade < 3) galeria.definirQualidade(++nivelQualidade);
+    janelaInicio = t;
+    janelaQuadros = 0;
+  }
+
   navGaleria.atualizar(dt);
   galeria.atualizarLuz(agoraParaLuz(), dt); // mesma hora do ateliê (?hora)
   galeria.render();

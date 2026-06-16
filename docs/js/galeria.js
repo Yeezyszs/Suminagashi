@@ -690,14 +690,18 @@ function criarLuz(cena) {
   sol.position.set(-7, 6, 3); // atrás/acima do shoji esquerdo
   sol.target.position.set(1.5, 0, -1);
   sol.castShadow = true;
-  sol.shadow.mapSize.set(2048, 2048);
-  // Penumbra ampla (VSM): raio alto + muitas amostras de blur = sombra macia,
-  // sem o serrilhado da grade. normalBias afasta o acne das superfícies.
-  sol.shadow.radius = 11;
-  sol.shadow.blurSamples = 25;
-  sol.shadow.bias = -0.0003;
+  // Mapa de sombra 1024 com frustum JUSTO à sala (s=5): mesma densidade de
+  // textel que um 2048 frouxo, por metade do custo. A sombra é recalculada
+  // só algumas vezes por segundo (autoUpdate=false; ver criarGaleria) — a
+  // cena é estática e o sol anda devagar, então não precisa refazer a 60fps.
+  sol.shadow.mapSize.set(1024, 1024);
+  // Penumbra ampla (VSM): raio + amostras de blur = sombra macia, sem o
+  // serrilhado da grade. normalBias afasta o acne das superfícies.
+  sol.shadow.radius = 9;
+  sol.shadow.blurSamples = 16;
+  sol.shadow.bias = -0.0004;
   sol.shadow.normalBias = 0.04;
-  const s = 7;
+  const s = 5;
   sol.shadow.camera.left = -s;
   sol.shadow.camera.right = s;
   sol.shadow.camera.top = s;
@@ -795,12 +799,19 @@ export function luzDaHora(date) {
  */
 export function criarGaleria(canvas) {
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, DPR_MAXIMO));
+  let tetoDPR = DPR_MAXIMO; // teto do pixelRatio (a qualidade adaptativa baixa)
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, tetoDPR));
   renderer.shadowMap.enabled = true;
   // VSM (variance shadow map): sombras de penumbra LARGA e macia — a luz que
   // entra por papel é difusa, não cria a grade dura de "3D de jogo". O blur é
   // controlado por shadow.radius + shadow.blurSamples (ver criarLuz).
   renderer.shadowMap.type = THREE.VSMShadowMap;
+  // A sombra NÃO se refaz a cada quadro (autoUpdate=false): a cena é estática
+  // e o sol anda devagar, então recalcular a 60fps era desperdício — o
+  // segundo render (mapa de sombra + blur VSM) dobrava o custo do quadro.
+  // Em vez disso, marcamos needsUpdate algumas vezes por segundo (atualizarLuz).
+  renderer.shadowMap.autoUpdate = false;
+  renderer.shadowMap.needsUpdate = true; // gera a primeira sombra
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
   renderer.toneMappingExposure = 1.0;
 
@@ -887,6 +898,7 @@ export function criarGaleria(canvas) {
   };
 
   const tmpCor = new THREE.Color();
+  let acumSombra = 1; // força um recálculo de sombra logo no 1º quadro
 
   /** Aplica luzDaHora(date), interpolando suavemente o estado atual. */
   function atualizarLuz(date, dt) {
@@ -924,6 +936,14 @@ export function criarGaleria(canvas) {
     atual.andonE = lerp(atual.andonE, 0.2 + (1 - dia) * 0.75);
     andonLuz.intensity = atual.andonI;
     andonMat.emissiveIntensity = atual.andonE;
+
+    // Recalcula a sombra ~4×/s (o sol mudou um tiquinho): imperceptível, mas
+    // poupa o segundo render na maioria dos quadros.
+    acumSombra += dt;
+    if (acumSombra >= 0.25) {
+      renderer.shadowMap.needsUpdate = true;
+      acumSombra = 0;
+    }
   }
 
   function redimensionar() {
@@ -932,6 +952,29 @@ export function criarGaleria(canvas) {
     renderer.setSize(w, h, false);
     camera.aspect = w / Math.max(h, 1);
     camera.updateProjectionMatrix();
+  }
+
+  /**
+   * Qualidade adaptativa: chamada pelo monitor de FPS quando o quadro pesa.
+   * Nível 0 = cheio; cada nível baixa o custo sem mudar a composição —
+   * primeiro o pixelRatio (preenchimento, o gargalo no retina do celular),
+   * depois o tamanho do mapa de sombra. Só desce numa sessão (sobe de novo
+   * ao reabrir o templo).
+   */
+  function definirQualidade(nivel) {
+    const tetos = [DPR_MAXIMO, 1.5, 1.0, 0.75];
+    tetoDPR = tetos[Math.min(nivel, tetos.length - 1)];
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, tetoDPR));
+    const lado = nivel >= 3 ? 512 : 1024;
+    if (luz.sol.shadow.mapSize.x !== lado) {
+      luz.sol.shadow.mapSize.set(lado, lado);
+      if (luz.sol.shadow.map) {
+        luz.sol.shadow.map.dispose();
+        luz.sol.shadow.map = null; // três recria no tamanho novo
+      }
+    }
+    renderer.shadowMap.needsUpdate = true;
+    redimensionar();
   }
 
   function render() {
@@ -954,6 +997,7 @@ export function criarGaleria(canvas) {
     atualizarLuz,
     pendurarObras,
     obraEmFoco,
+    definirQualidade,
   };
 }
 
@@ -979,6 +1023,7 @@ const ALTURA_OLHO = 1.5; // altura dos olhos (m)
 const SENS_OLHAR = 0.0010; // rad por pixel arrastado
 const PITCH_LIMITE = 0.5; // ~28°: não dá para olhar o teto/chão por inteiro
 const LIMIAR_ARRASTE = 6; // px: abaixo disso, é um toque (caminhar/focar)
+const VEL_OLHAR = 18; // amortecimento do olhar (maior = mais responsivo)
 const VEL_CAMINHAR = 2.2; // suavização do deslocamento (maior = mais rápido)
 const DIST_PARADA = 1.9; // para a esta distância do ponto clicado (m)
 const MARGEM_PAREDE = 0.8; // não encosta nas paredes
@@ -991,6 +1036,11 @@ const FOCO_MIN = 0.45; // zoom máximo de aproximação (m)
 const FOCO_MAX = 2.4; // zoom máximo de afastamento (m)
 
 const trava = (v, a, b) => Math.max(a, Math.min(b, v));
+// Amortecimento INDEPENDENTE de FPS: fração a interpolar neste quadro para um
+// tempo-resposta ~1/k, igual a 30 ou 60fps (1−e^(−k·dt) ≈ k·dt para dt pequeno,
+// mas estável quando o quadro engasga). É o que faz a câmera continuar macia
+// mesmo na queda de FPS — em vez de pular ou arrastar.
+const amort = (k, dt) => 1 - Math.exp(-k * dt);
 
 /**
  * Instala a navegação num canvas sobre uma galeria. Retorna
@@ -1002,8 +1052,12 @@ export function instalarNavegacao(canvas, galeria, reduzMovimento) {
   const { camera } = galeria;
 
   // Estado: yaw=0 olha para o fundo (−Z, o tokonoma); pitch levemente baixo.
+  // O arrasto move o ALVO (yawAlvo/pitchAlvo); a vista (yaw/pitch) persegue o
+  // alvo com amortecimento — o olhar fica buttery, sem trepidar.
   let yaw = 0;
   let pitch = -0.04;
+  let yawAlvo = 0;
+  let pitchAlvo = -0.04;
   const pos = new THREE.Vector3(camera.position.x, ALTURA_OLHO, camera.position.z);
   const alvo = pos.clone(); // destino da caminhada
   const raycaster = new THREE.Raycaster();
@@ -1069,9 +1123,9 @@ export function instalarNavegacao(canvas, galeria, reduzMovimento) {
     andouX += Math.abs(dx);
     andouY += Math.abs(dy);
     if (focado) return; // em foco a vista trava de frente para a obra
-    // Arrastar gira a vista (resposta imediata, sem suavização — natural).
-    yaw -= dx * SENS_OLHAR;
-    pitch = trava(pitch + dy * SENS_OLHAR, -PITCH_LIMITE, PITCH_LIMITE);
+    // Arrastar move o ALVO do olhar (a vista persegue com amortecimento).
+    yawAlvo -= dx * SENS_OLHAR;
+    pitchAlvo = trava(pitchAlvo + dy * SENS_OLHAR, -PITCH_LIMITE, PITCH_LIMITE);
   });
 
   function terminar(e) {
@@ -1150,8 +1204,8 @@ export function instalarNavegacao(canvas, galeria, reduzMovimento) {
     pos.set(camera.position.x, ALTURA_OLHO, camera.position.z);
     alvo.copy(pos);
     camera.getWorldDirection(dir);
-    yaw = Math.atan2(dir.x, -dir.z);
-    pitch = trava(Math.asin(trava(dir.y, -1, 1)), -PITCH_LIMITE, PITCH_LIMITE);
+    yaw = yawAlvo = Math.atan2(dir.x, -dir.z);
+    pitch = pitchAlvo = trava(Math.asin(trava(dir.y, -1, 1)), -PITCH_LIMITE, PITCH_LIMITE);
   }
 
   /** Raycast do ponto clicado para a cena; define o destino da caminhada. */
@@ -1185,15 +1239,19 @@ export function instalarNavegacao(canvas, galeria, reduzMovimento) {
       // ABAIXADA (FOCO_BOOM) para a obra subir na tela e sobrar espaço
       // embaixo para o poema. A vista é horizontal e perpendicular ao
       // quadro (sem keystone): olha para o ponto na MESMA altura da câmera.
-      const k = reduzMovimento ? 1 : Math.min(1, dt * VEL_FOCO);
+      const k = reduzMovimento ? 1 : amort(VEL_FOCO, dt);
       _v.copy(focoNormal).multiplyScalar(distFoco).add(focoCentro);
       _v.y -= FOCO_BOOM * distFoco;
       camera.position.lerp(_v, k);
       camera.lookAt(focoCentro.x, camera.position.y, focoCentro.z);
       return;
     }
+    // Olhar: a vista persegue o alvo com amortecimento (buttery, sem trepidar).
+    const kOlhar = reduzMovimento ? 1 : amort(VEL_OLHAR, dt);
+    yaw += (yawAlvo - yaw) * kOlhar;
+    pitch += (pitchAlvo - pitch) * kOlhar;
     // Caminhada suave (ou imediata sob prefers-reduced-motion).
-    const k = reduzMovimento ? 1 : Math.min(1, dt * VEL_CAMINHAR);
+    const k = reduzMovimento ? 1 : amort(VEL_CAMINHAR, dt);
     pos.lerp(alvo, k);
     camera.position.copy(pos);
     // Aplica yaw/pitch (sem roll).
