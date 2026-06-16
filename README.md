@@ -151,11 +151,13 @@ combinando duas fontes (ver `luz.js`, funções puras):
    veem entardeceres diferentes porque fundaram salas diferentes.
 
 **Guardar** é o único momento "alto" do site (e o único vermelho): a água
-assenta, um **selo hanko** (印) carimba a obra, ela se **enrola em
-pergaminho** e é recolhida para a estante. Cada obra ganha um nome em PT-BR
-gerado da hora + temperatura (ex.: "Maré da Noite", "Âmbar das Três"),
-renomeável depois. Na estante, **exportar** baixa a obra em PNG **4K**,
-pronta para wallpaper.
+assenta; o site **escolhe um haiku clássico** que combina com a obra e o
+mostra em **kanji fantasma** numa tira de papel para você **traçar** com um
+pincel sumi (livre, meditativo — dá para pular); então o **selo hanko** (印)
+carimba a obra, ela se **enrola em pergaminho** e é recolhida para a estante.
+Cada obra ganha um nome em PT-BR gerado da hora + temperatura (ex.: "Maré da
+Noite", "Âmbar das Três"), renomeável depois. Na estante, **exportar** baixa a
+obra em PNG **4K**, pronta para wallpaper.
 
 A **resolução é adaptativa**: o detalhe de uma exportação é o detalhe com
 que a simulação rodou (ampliar não cria nitidez), então desktops potentes
@@ -171,19 +173,40 @@ gestos e ~10s de quietude a água assenta, a sala ganha alma (o tom da
 fundação) e a obra vira o primeiro pergaminho da estante. Tudo fica só no
 seu navegador (`localStorage`); nada sai dele.
 
+## O Templo (galeria 3D) e a caligrafia
+
+A aba da estante abre **O Templo**: uma galeria 3D em primeira pessoa (um
+cômodo de tatami com shoji, tokonoma e mobília) onde as obras ficam
+**penduradas como kakemono**. A luz muda com a **hora real** (luar de
+madrugada → âmbar de entardecer). Arrastar = olhar, tocar = caminhar;
+**clicar numa obra** aproxima até quase tela cheia, com zoom. É a única parte
+do projeto que usa uma dependência — **Three.js**, *vendorado* localmente e
+carregado só ao abrir o templo (o ateliê segue vanilla, e tudo abre offline).
+
+Ao **aproximar** de uma obra, aparece o **haiku** que você traçou (japonês +
+tradução PT + autor), e ao lado da pintura pende a sua **caligrafia** como um
+pergaminho-irmão. Os haikus são uma coleção curada de clássicos de domínio
+público (Bashō, Buson, Issa, Chiyo-ni, Shiki); o site cruza o "retrato" da
+obra (cor, energia do gesto, estação) com as etiquetas de cada poema e escolhe
+o de melhor clima — determinístico pela obra.
+
 ## Estrutura
 
 ```
 index.html
 styles.css
 js/
-  prng.js     # PRNG seedável (mulberry32) — determinismo desde o dia 1
-  fluido.js   # motor: solver de Navier-Stokes em WebGL2 + shaders
-  input.js    # pointer events → gestos (tap = gota, drag = estilete)
-  modos.js    # os dois modos (água/cosmos) — único lugar de diferença
-  luz.js      # atmosfera: ciclo do relógio + tom da fundação (puro)
-  estante.js  # batismo: nome e haiku locais, determinísticos (puro)
-  main.js     # orquestração, estados, guardar, estante, loop
+  prng.js      # PRNG seedável (mulberry32) — determinismo desde o dia 1
+  fluido.js    # motor: solver de Navier-Stokes em WebGL2 + shaders
+  input.js     # pointer events → gestos (tap = gota, drag = estilete)
+  modos.js     # os dois modos (água/cosmos) — único lugar de diferença
+  luz.js       # atmosfera 2D: ciclo do relógio + tom da fundação (puro)
+  estante.js   # batismo: nome, haiku e poema locais, determinísticos
+  haiku.js     # coleção de haikus clássicos (verificada) + seleção da obra
+  caligrafia.js# a tira de traçar o haiku (pincel sumi) no ritual de guardar
+  galeria.js   # O TEMPLO: cena 3D (Three.js vendorado) — luz por hora, foco
+  main.js      # orquestração, estados, guardar, estante, templo, loop
+  vendor/three.module.js  # Three.js r160 vendorado (única dep; offline)
 ```
 
 `fluido.js` conhece WebGL mas não conhece a página: recebe um canvas e
