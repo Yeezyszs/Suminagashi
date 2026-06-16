@@ -89,19 +89,26 @@ do suminagashi clássico.
 Na barra: 10 tintas + água, e **segurar um swatch (~450ms)** abre um seletor
 para personalizá-lo (persiste no navegador).
 
-## Dois modos: água (fluido) e cosmos (pintura de luz)
+## Os modos de pintura (motores irmãos)
 
-São dois motores irmãos sob a mesma casca (mesma estante, mesmo guardar,
-mesmo tokonoma, mesmo batismo). **A alma é a mesma — criar com o gesto —, os
-materiais são opostos:**
+Modos sob a mesma casca (mesma estante, mesmo guardar, mesmo tokonoma, mesmo
+batismo). **A alma é a mesma — criar com o gesto —, os materiais são
+opostos.** O alternador do ateliê hoje é **água ↔ ukiyo-e**.
 
 - **água** — tinta escura que se ESPALHA sobre o claro (subtrativo). É a
-  simulação de fluido (Navier-Stokes) descrita acima.
-- **cosmos** — luz clara que se ACUMULA sobre o escuro (aditivo). **Não é
-  fluido**: é um motor de *pintura de luz*. Uma tela preta, parada como um
-  quadro, onde os pincéis depositam, concentram, espalham e apagam luz. Nada
-  roda continuamente — a tela só muda quando você pinta (mais um curto
-  "assentar" da luz recém-posta).
+  simulação de fluido (Navier-Stokes) descrita acima — soltar o controle.
+- **ukiyo-e** — o OPOSTO: **controle**. Um motor de pintura de **linha**
+  (Canvas 2D, `ukiyoe.js`), no espírito da xilogravura japonesa. Três pincéis:
+  **contorno** (linha de tinta sumi de espessura modulada pela velocidade —
+  lento engrossa, rápido afina), **preenchimento** (cor chapada, paleta
+  histórica: azul de Prússia, índigo, areia, vermelho-tijolo) e **padrão**
+  (carimba motivos — garra de espuma, linhas de chuva). Composto em camadas
+  como a estampa real (cor por baixo, contorno por cima), sobre papel washi,
+  com **desfazer**. Arte *no estilo*, não cópia de obra.
+- **cosmos** (arquivado) — luz clara que se ACUMULA sobre o escuro (aditivo).
+  **Não é fluido**: é um motor de *pintura de luz*. Uma tela preta, parada como
+  um quadro, onde os pincéis depositam, concentram, espalham e apagam luz.
+  Continua no código (`modos.js`), fora do alternador atual.
 
 Os pincéis do cosmos:
 - **poeira** (as cores) — arrastar deposita névoa de luz que *acumula em
@@ -197,7 +204,8 @@ js/
   prng.js      # PRNG seedável (mulberry32) — determinismo desde o dia 1
   fluido.js    # motor: solver de Navier-Stokes em WebGL2 + shaders
   input.js     # pointer events → gestos (tap = gota, drag = estilete)
-  modos.js     # os dois modos (água/cosmos) — único lugar de diferença
+  modos.js     # os modos (água/cosmos/ukiyo-e): fundo, paleta, pincéis, léxico
+  ukiyoe.js    # MOTOR ukiyo-e: pintura de linha em Canvas 2D (oposto do fluido)
   luz.js       # atmosfera 2D: ciclo do relógio + tom da fundação (puro)
   estante.js   # batismo: nome, haiku e poema locais, determinísticos
   haiku.js     # coleção de haikus clássicos (verificada) + seleção da obra

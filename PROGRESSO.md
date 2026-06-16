@@ -3,7 +3,7 @@
 Registro do que já foi construído, em que pé está cada coisa e o que vem a
 seguir. Documento vivo: atualizar a cada marco.
 
-_Última atualização: 16/06/2026 (haiku da obra) — branch `main`_
+_Última atualização: 16/06/2026 (modo ukiyo-e) — branch `main`_
 
 ---
 
@@ -62,6 +62,7 @@ tom educacional. UI mínima e em português.
 | 17 | `01bed7f`+ | **v8: Vestir o templo** | Sombras macias (VSM), materiais vividos (tatami real com heri/trama alternada, parede de argila, madeira orgânica) e mobília: tokonoma com arranjo, andon (luz quente noturna), mesa+almofada+bacia preparada para a v9. |
 | 18 | (perf) | **Movimentação + FPS** | Sombra sob demanda (não a 60fps), mapa menor/justo, qualidade adaptativa por FPS real; amortecimento de câmera independente de FPS. |
 | 19 | `4acfe78`+ | **Haiku que lê a obra** | Coleção curada de haikus clássicos (verificada) + seleção que cruza o retrato da obra com as etiquetas; o haiku é revelado ao aproximar da obra no templo (japonês em 3 colunas + tradução + autor). _O traçado manual chegou a existir e foi removido (`f4ec254`) — não ficou funcional._ |
+| 20 | (ukiyo-e) | **Modo ukiyo-e** | Novo motor de pintura de LINHA (Canvas 2D), o oposto do fluido: contorno sumi modulado, preenchimento chapado, padrões (espuma/chuva), papel washi, camadas + desfazer. Integrado como modo irmão da água (alternador água ↔ ukiyo-e; cosmos arquivado). |
 
 ---
 
@@ -77,7 +78,8 @@ suminagashi/
       prng.js       # PRNG seedável (mulberry32) — determinismo desde o dia 1
       fluido.js     # MOTOR: solver de Navier-Stokes em WebGL2 + shaders GLSL
       input.js      # Pointer Events → gestos (tap = gota, drag = estilete)
-      modos.js      # os dois modos (água/cosmos) + pools do poema bilíngue
+      modos.js      # os modos (água/cosmos/ukiyo-e) + léxicos e poemas
+      ukiyoe.js     # MOTOR ukiyo-e: pintura de linha em Canvas 2D (não fluido)
       luz.js        # atmosfera 2D: ciclo do relógio + tom da fundação (puro)
       estante.js    # batismo: nome, haiku e poema locais, determinísticos
       haiku.js      # coleção curada de haikus clássicos + seleção que lê a obra
@@ -264,6 +266,32 @@ em 3 colunas (5-7-5) + a tradução PT + o autor.
 > fantasma + pincel sumi, dentro do ritual de guardar) chegou a existir
 > (`caligrafia.js`), mas não ficou funcional e foi removido — ficou só a
 > seleção + a exibição do haiku.
+
+---
+
+## Modo ukiyo-e (xilogravura) — o motor de LINHA
+
+Modo irmão da água, mas com motor PRÓPRIO (`ukiyoe.js`, **Canvas 2D**, sem
+WebGL): é o **oposto** do suminagashi — fluido é soltar o controle (acaso);
+ukiyo-e é **controle** (linha definida, cor chapada, contorno). O alternador
+do ateliê agora é **água ↔ ukiyo-e** (o cosmos ficou arquivado em `modos.js`,
+trivial de recolocar).
+
+- [x] **Contorno** (a alma): linha de tinta sumi de espessura MODULADA pela
+      velocidade (lento/pressão = grosso, rápido = fino), construída como uma
+      fita de largura variável com curvas suaves e ponta que afina.
+- [x] **Preenchimento**: áreas de cor chapada opaca (sem gradiente), na paleta
+      histórica (azul de Prússia, índigo, areia, vermelho-tijolo, etc.).
+- [x] **Padrão**: carimba motivos estilizados ao longo do gesto — garra de
+      espuma (à la Hokusai, sem copiar obra) e linhas de chuva.
+- [x] **Camadas** como a xilogravura: washi → cor/padrões → contorno (a linha
+      sempre fecha o desenho). Pilha de operações com **desfazer** e limpar.
+- [x] Papel **washi** procedural (tom envelhecido, fibras, vinheta).
+- [x] Integração: troca de motor sem recarregar, paleta/pincéis remontam, a
+      água "dorme"; guardar leva a estampa à estante/galeria como kakemono,
+      com nome/haiku pelo léxico ukiyo-e. Offline, Canvas 2D leve.
+- [ ] (futuro) Mais motivos de padrão; balde de preenchimento por região;
+      léxico/poemas ukiyo-e mais ricos.
 
 ---
 
