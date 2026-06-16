@@ -1030,6 +1030,7 @@ const galeriaVazia = document.getElementById('galeria-vazia');
 const focoObraEl = document.getElementById('foco-obra');
 const focoPoemaJa = document.getElementById('foco-poema-ja');
 const focoPoemaPt = document.getElementById('foco-poema-pt');
+const focoAutor = document.getElementById('foco-autor');
 const focoAcoes = document.getElementById('foco-acoes');
 const botaoBaixarFoco = document.getElementById('foco-baixar');
 const botaoApagarFoco = document.getElementById('foco-apagar');
@@ -1088,6 +1089,10 @@ async function repovoarTemplo() {
       haiku: o.haiku,
       ehFundacao: o.ehFundacao,
       imagem: await obterImagem(o),
+      caligrafia: await obterCaligrafia(o), // traços do usuário (pergaminho-irmão)
+      haikuJp: o.haikuJp,
+      haikuPt: o.haikuPt,
+      haikuAutor: o.haikuAutor,
     }))
   );
   await galeria.pendurarObras(lista);
@@ -1135,10 +1140,19 @@ function quadroGaleria(t) {
   if (obraFoco) {
     if (focoIdAtual !== obraFoco.id) {
       focoIdAtual = obraFoco.id;
-      const m = MODOS[obraFoco.modo] || MODOS.agua;
-      const poema = gerarPoema(m, hash(obraFoco.id));
-      focoPoemaJa.innerHTML = poema.ja.join('<br>');
-      focoPoemaPt.innerHTML = poema.pt.join('<br>');
+      if (obraFoco.haikuJp) {
+        // Obra com haiku CLÁSSICO traçado: revela o haiku + tradução + autor.
+        focoPoemaJa.textContent = obraFoco.haikuJp;
+        focoPoemaPt.innerHTML = (obraFoco.haikuPt || '').replace(/ \/ /g, '<br>');
+        focoAutor.textContent = obraFoco.haikuAutor ? '— ' + obraFoco.haikuAutor : '';
+      } else {
+        // Fallback (obras antigas): o poema bilíngue gerado da galeria.
+        const m = MODOS[obraFoco.modo] || MODOS.agua;
+        const poema = gerarPoema(m, hash(obraFoco.id));
+        focoPoemaJa.innerHTML = poema.ja.join('<br>');
+        focoPoemaPt.innerHTML = poema.pt.join('<br>');
+        focoAutor.textContent = '';
+      }
       // A fundação (元) é permanente: esconde "apagar". Reset do confirmar.
       botaoApagarFoco.hidden = !!obraFoco.ehFundacao;
       confirmandoApagarFoco = false;

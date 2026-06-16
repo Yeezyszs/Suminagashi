@@ -819,6 +819,20 @@ body.pintando #ferramentas {
   letter-spacing: 0.04em;
 }
 
+/* Autor do haiku clássico: assinatura discreta sob a tradução. */
+#foco-autor {
+  display: block;
+  margin-top: 0.4rem;
+  font-family: system-ui, sans-serif;
+  font-size: 0.68rem;
+  letter-spacing: 0.1em;
+  opacity: 0.55;
+}
+
+#foco-autor:empty {
+  display: none;
+}
+
 /* Afastar do quadro (✕): canto superior direito, gêmeo do 墨 (voltar). */
 #foco-fechar {
   position: fixed;
