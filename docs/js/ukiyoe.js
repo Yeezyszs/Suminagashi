@@ -380,6 +380,19 @@ export function criarUkiyoe(canvas, opcoes = {}) {
     return canvas.toDataURL(tipo, qualidade);
   }
 
+  /** Pixels da estampa num lado pequeno — p/ extrair o tom da obra (guardar). */
+  function capturarPixels(lado = 64) {
+    const aspecto = larguraCss / Math.max(alturaCss, 1);
+    const w = aspecto >= 1 ? lado : Math.max(1, Math.round(lado * aspecto));
+    const h = aspecto >= 1 ? Math.max(1, Math.round(lado / aspecto)) : lado;
+    const off = document.createElement('canvas');
+    off.width = w;
+    off.height = h;
+    const c = off.getContext('2d');
+    c.drawImage(canvas, 0, 0, w, h);
+    return { pixels: c.getImageData(0, 0, w, h).data, w, h };
+  }
+
   redimensionar();
   return {
     redimensionar,
@@ -387,6 +400,7 @@ export function criarUkiyoe(canvas, opcoes = {}) {
     desfazer,
     limpar,
     capturar,
+    capturarPixels,
     compor,
     get vazio() {
       return ops.length === 0;

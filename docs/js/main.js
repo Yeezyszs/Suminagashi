@@ -10,6 +10,7 @@
 
 import { mulberry32, entre } from './prng.js';
 import { criarFluido } from './fluido.js';
+import { criarUkiyoe } from './ukiyoe.js';
 import { instalarInput } from './input.js';
 import {
   cicloDeLuz,
@@ -225,6 +226,32 @@ const reduzMovimento = window.matchMedia('(prefers-reduced-motion: reduce)');
 const corpo = document.body;
 const dorme = (ms) => new Promise((r) => setTimeout(r, ms));
 
+// Motor ukiyo-e (Canvas 2D de linha): criado SOB DEMANDA na 1ª vez que se
+// entra no modo (o ateliê não paga por ele se nunca for usado).
+const canvasUkiyoe = document.getElementById('ukiyoe');
+let ukiyoe = null;
+let corUkiyoe = '#1B3B6F'; // última cor escolhida (preenchimento/padrões)
+
+function garantirUkiyoe() {
+  if (!ukiyoe) {
+    ukiyoe = criarUkiyoe(canvasUkiyoe, { aoInteragir: marcarInteracao });
+  }
+  return ukiyoe;
+}
+
+/** Aplica a seleção atual (cor ou pincel) ao motor ukiyo-e. */
+function aplicarPincelUkiyoe() {
+  if (!ukiyoe) return;
+  if (typeof selecao === 'number') {
+    corUkiyoe = corDoSwatch(selecao);
+    ukiyoe.definirPincel('preenchimento', corUkiyoe);
+  } else if (selecao === 'contorno') {
+    ukiyoe.definirPincel('contorno');
+  } else if (selecao === 'espuma' || selecao === 'chuva') {
+    ukiyoe.definirPincel('padrao', corUkiyoe, selecao);
+  }
+}
+
 // Cores personalizadas (long-press), por modo+índice — as paletas diferem.
 const coresPersonalizadas = lerArmazenado(CHAVE_PALETA) || {};
 const chaveCor = (i) => `${idModo}:${i}`;
@@ -418,9 +445,9 @@ function pintarLuz(x, y, mx, my, velPx) {
 // ---------------------------------------------------------------------------
 
 function quadro(agora) {
-  // Com o templo aberto, a água "dorme": não simula nem renderiza (só a
-  // galeria 3D roda). Mantém o loop vivo para retomar ao voltar ao ateliê.
-  if (galeriaAberta) {
+  // Com o templo aberto OU no modo ukiyo-e (motor próprio, Canvas 2D), a água
+  // "dorme": não simula nem renderiza. Mantém o loop vivo para retomar depois.
+  if (galeriaAberta || modo.motor === 'ukiyoe') {
     quadroAnterior = agora;
     requestAnimationFrame(quadro);
     return;
@@ -540,6 +567,14 @@ function limparEstrelas() {
 }
 
 function lavar() {
+  // No ukiyo-e, "lavar" é limpar a estampa (papel em branco).
+  if (modo.motor === 'ukiyoe') {
+    if (ukiyoe) ukiyoe.limpar();
+    ultimaInteracao = performance.now();
+    clearTimeout(timerRecuo);
+    timerRecuo = setTimeout(recolherFerramentas, RECUO_MS);
+    return;
+  }
   if (inicioLavagem !== null) return;
   if (reduzMovimento.matches) fluido.desbotar(1);
   else inicioLavagem = performance.now();
@@ -576,16 +611,25 @@ async function guardar(ehFundacao = false) {
 
   const reduz = reduzMovimento.matches;
 
-  // 1. Assentar: a água se aquieta.
-  ondulacaoAlvo = 0;
-  await dorme(reduz ? 0 : GUARDAR_ASSENTAR);
+  const ehUkiyoe = modo.motor === 'ukiyoe';
 
-  // Captura a obra já assentada na resolução NATIVA da grade de tinta —
-  // todo o detalhe que a simulação produziu, no render do modo atual
-  // (água ou cosmos), com as estrelas embutidas e SEM cintilar (still).
-  const captura = fluido.capturar(larguraCaptura(), performance.now() / 1000, false);
-  const dataUrl = capturaParaDataUrl(captura);
-  const tom = extrairTomFundacao(captura.pixels, captura.w, captura.h, hexParaRgb(modo.fundo));
+  // 1. Assentar: a água se aquieta (no ukiyo-e não há o que assentar).
+  ondulacaoAlvo = 0;
+  await dorme(reduz || ehUkiyoe ? 0 : GUARDAR_ASSENTAR);
+
+  // Captura a obra. ÁGUA: a grade de tinta na resolução NATIVA. UKIYO-E: a
+  // estampa do Canvas 2D (washi + cor + linha). Em ambos extraímos o "tom".
+  let dataUrl;
+  let pix;
+  if (ehUkiyoe) {
+    dataUrl = ukiyoe.capturar('image/jpeg', 0.92);
+    pix = ukiyoe.capturarPixels(64);
+  } else {
+    const captura = fluido.capturar(larguraCaptura(), performance.now() / 1000, false);
+    dataUrl = capturaParaDataUrl(captura);
+    pix = { pixels: captura.pixels, w: captura.w, h: captura.h };
+  }
+  const tom = extrairTomFundacao(pix.pixels, pix.w, pix.h, hexParaRgb(modo.fundo));
 
   // 1.5 O site LÊ a obra (retrato) + a data e ESCOLHE um haiku clássico de
   // melhor clima — silenciosamente; ele é revelado ao aproximar da obra no
@@ -611,9 +655,12 @@ async function guardar(ehFundacao = false) {
   // Registra a obra na estante (modo, batismo, haiku clássico escolhido).
   await registrarObra(dataUrl, tom.calidez, ehFundacao, { criadaEm, semente, haiku });
 
-  // 5. Limpa, cena escondida, volta ao ocioso.
-  fluido.desbotar(1);
-  limparEstrelas();
+  // 5. Limpa (cada motor à sua maneira), cena escondida, volta ao ocioso.
+  if (ehUkiyoe) ukiyoe.limpar();
+  else {
+    fluido.desbotar(1);
+    limparEstrelas();
+  }
   esconderCenaGuardar();
   ondulacaoAlvo = 1;
   guardando = false;
@@ -872,6 +919,7 @@ function selecionar(nova) {
     const dele = b.dataset.pincel || Number(b.dataset.indice);
     b.classList.toggle('ativa', dele === selecao);
   });
+  if (modo.motor === 'ukiyoe') aplicarPincelUkiyoe();
 }
 
 function abrirEditorCor(indice, ancora) {
@@ -1387,32 +1435,52 @@ function nomeDeArquivo(obra, extensao) {
 // ---------------------------------------------------------------------------
 
 const botaoModo = document.getElementById('alternar-modo');
+const desfazerBtn = document.getElementById('desfazer');
 
-/** Aplica o modo atual ao motor e à UI. NÃO limpa a obra: é o MESMO fluido,
- *  trocar não perde a obra (a água absorve, o cosmos emite a mesma luz do
- *  buffer). São motores irmãos: a água roda o solver de fluido; o cosmos é
- *  pintura de luz parada (ver fluido.js e o loop). */
+/** Aplica o modo atual ao motor e à UI. A régua do alternador é água ↔
+ *  ukiyo-e (o cosmos está arquivado). ÁGUA: o solver de fluido na tela #agua.
+ *  UKIYO-E: o motor de linha 2D na tela #ukiyoe (outro motor — a água dorme).
+ *  Trocar não limpa nada: cada motor guarda a sua própria obra na sua tela. */
 function aplicarModo() {
-  fluido.definirModo(modo.render);
-  fluido.definirFundo(hexParaRgb(modo.fundo));
+  const ehUkiyoe = modo.motor === 'ukiyoe';
   corpo.classList.toggle('modo-cosmos', idModo === 'cosmos');
-  // A seleção pode não existir na paleta do novo modo — volta à 1ª tinta.
+  corpo.classList.toggle('modo-ukiyoe', ehUkiyoe);
+
+  if (ehUkiyoe) {
+    garantirUkiyoe();
+    canvasUkiyoe.hidden = false;
+    canvas.style.display = 'none'; // congela e oculta a água
+    ukiyoe.redimensionar();
+  } else {
+    canvasUkiyoe.hidden = true;
+    canvas.style.display = '';
+    fluido.definirModo(modo.render);
+    fluido.definirFundo(hexParaRgb(modo.fundo));
+  }
+
+  // A seleção pode não existir na paleta do novo modo.
   const pincelValido = modo.pinceis.some((p) => p.id === selecao);
-  if (!pincelValido && (typeof selecao !== 'number' || selecao >= modo.paleta.length)) selecao = 0;
-  botaoModo.textContent = idModo === 'cosmos' ? '✦' : '◐';
-  botaoModo.title = idModo === 'cosmos' ? 'cosmos (trocar para água)' : 'água (trocar para cosmos)';
+  if (!pincelValido && (typeof selecao !== 'number' || selecao >= modo.paleta.length)) {
+    selecao = ehUkiyoe ? 'contorno' : 0; // ukiyo-e começa na LINHA (a alma)
+  }
+  botaoModo.textContent = ehUkiyoe ? '浮' : '◐';
+  botaoModo.title = ehUkiyoe ? 'ukiyo-e (trocar para água)' : 'água (trocar para ukiyo-e)';
+  desfazerBtn.hidden = !ehUkiyoe;
+
   montarPaleta();
+  if (ehUkiyoe) aplicarPincelUkiyoe();
   atualizarAtmosfera();
 }
 
 function trocarModo() {
-  idModo = idModo === 'agua' ? 'cosmos' : 'agua';
+  idModo = idModo === 'ukiyoe' ? 'agua' : 'ukiyoe';
   modo = MODOS[idModo];
   gravarArmazenado(CHAVE_MODO, idModo);
   aplicarModo();
 }
 
 botaoModo.addEventListener('click', trocarModo);
+desfazerBtn.addEventListener('click', () => ukiyoe && ukiyoe.desfazer());
 
 // ---------------------------------------------------------------------------
 // Início
@@ -1421,7 +1489,10 @@ botaoModo.addEventListener('click', trocarModo);
 aplicarModo(); // monta a paleta do modo + fundo/ritmo/atmosfera
 document.getElementById('lavar').addEventListener('click', lavar);
 document.getElementById('guardar').addEventListener('click', () => guardar(false));
-window.addEventListener('resize', () => fluido.redimensionar());
+window.addEventListener('resize', () => {
+  fluido.redimensionar();
+  if (ukiyoe) ukiyoe.redimensionar();
+});
 
 // Primeira visita (sem fundação) → ritual. Retorno → ocioso, sala com alma.
 if (!tomFundacao) {

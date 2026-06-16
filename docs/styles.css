@@ -913,3 +913,27 @@ body.pintando #ferramentas {
   }
 }
 
+
+/* ------------------------------------------------------- modo ukiyo-e (2D) */
+
+/* A tela de linha do ukiyo-e: por cima da água, abaixo da atmosfera/UI.
+   Opaca (o motor pinta o washi), então cobre a água congelada por baixo. */
+#ukiyoe {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 1;
+  touch-action: none;
+  cursor: crosshair;
+}
+
+#ukiyoe[hidden] {
+  display: none;
+}
+
+/* No ukiyo-e o "ar" atrás é o washi (caso apareça em transições). Mantém os
+   tokens claros da água (texto escuro) — NÃO é o vazio do cosmos. */
+body.modo-ukiyoe {
+  background: #e7ddc4;
+}

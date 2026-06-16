@@ -18,6 +18,10 @@
   <!-- O canvas é o protagonista: tela cheia, tudo o mais flutua sobre ele. -->
   <canvas id="agua"></canvas>
 
+  <!-- Modo ukiyo-e: motor de LINHA em Canvas 2D (outro motor, não o fluido).
+       Fica por cima da água; visível só no modo ukiyo-e. -->
+  <canvas id="ukiyoe" hidden></canvas>
+
   <!-- Atmosfera: a luz da sala. Um único overlay por cima de tudo
        (água, UI, estante), pointer-events:none, compositing normal —
        barato. O gradiente é definido pelo sistema de luz (js/luz.js). -->
@@ -42,6 +46,8 @@
     <button id="alternar-modo" aria-label="alternar modo"></button>
     <div id="paleta"><!-- gotas-cor montadas pelo main.js --></div>
     <div class="acoes">
+      <!-- desfazer só aparece no ukiyo-e (a linha é deliberada) -->
+      <button id="desfazer" hidden>desfazer</button>
       <button id="lavar">lavar</button>
       <button id="guardar">guardar</button>
     </div>

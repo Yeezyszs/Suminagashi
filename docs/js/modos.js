@@ -175,4 +175,70 @@ export const MODO_COSMOS = {
   },
 };
 
-export const MODOS = { agua: MODO_AGUA, cosmos: MODO_COSMOS };
+// ---------------------------------------------------------------------------
+// MODO UKIYO-E — xilogravura (motor de LINHA em Canvas 2D, ver ukiyoe.js)
+//
+// O OPOSTO da água: controle, não acaso. Não é o fluido olhado no espelho —
+// é OUTRO motor. Por isso traz `motor: 'ukiyoe'`: o main troca de motor (não
+// só de render) ao entrar aqui. A cor selecionada pinta o PREENCHIMENTO; os
+// "pincéis" trocam o gesto (contorno = linha sumi; espuma/chuva = padrões).
+// ---------------------------------------------------------------------------
+
+export const MODO_UKIYOE = {
+  id: 'ukiyoe',
+  nome: 'ukiyo-e',
+  motor: 'ukiyoe',
+  fundo: '#E7DDC4', // washi (o motor desenha o papel; esta é a cor base/atm)
+  // Paleta histórica da xilogravura: poucas cores, harmônicas.
+  paleta: [
+    { nome: 'sumi', cor: '#1A1714' },
+    { nome: 'azul de Prússia', cor: '#1B3B6F' },
+    { nome: 'índigo', cor: '#27374D' },
+    { nome: 'verde-acinzentado', cor: '#5E7261' },
+    { nome: 'areia', cor: '#CBB994' },
+    { nome: 'vermelho-tijolo', cor: '#A8432F' },
+    { nome: 'branco-espuma', cor: '#F2EFE6' },
+  ],
+  // Os "pincéis" são os GESTOS do estilo. contorno = a linha de tinta; espuma
+  // e chuva carimbam padrões estilizados (usam a cor selecionada).
+  pinceis: [
+    { id: 'contorno', nome: 'contorno', simbolo: '筆' },
+    { id: 'espuma', nome: 'espuma', simbolo: '波' },
+    { id: 'chuva', nome: 'chuva', simbolo: '雨' },
+  ],
+  densidade(rgb) {
+    return rgb; // não usado (sem fluido); presente só p/ a casca comum
+  },
+  lexico: {
+    frios: ['Onda', 'Maré', 'Espuma', 'Garoa', 'Bruma', 'Costa', 'Enseada'],
+    quentes: ['Monte', 'Telhado', 'Lanterna', 'Ponte', 'Estrada', 'Festa'],
+    neutros: ['Estampa', 'Gravura', 'Paisagem', 'Vista', 'Margem', 'Travessia'],
+    raras: ['O Mundo Flutuante', 'Onde o Mar Toca o Céu', 'A Estampa Eterna'],
+    haiku: {
+      a: ['a grande onda', 'o monte ao longe', 'sobre o mar de Prússia', 'na estampa antiga'],
+      b: ['uma garra {cor} se ergue', 'a linha {cor} fecha o céu', 'a {cor} chapa o mar', 'desce a chuva {cor}'],
+      c: ['e o barco não volta', 'antes de quebrar', 'sob o papel velho', 'o mundo flutua'],
+    },
+    poema: {
+      abertura: [
+        { ja: '波の爪', pt: 'as garras da onda' },
+        { ja: '浮世の絵', pt: 'imagem do mundo flutuante' },
+        { ja: '藍の海', pt: 'o mar índigo' },
+      ],
+      meio: [
+        { ja: '線が閉じる', pt: 'a linha se fecha' },
+        { ja: '色を重ねて', pt: 'sobrepondo as cores' },
+        { ja: '遠くの山', pt: 'a montanha ao longe' },
+      ],
+      fecho: [
+        { ja: '古き紙に', pt: 'no papel antigo' },
+        { ja: '世は移ろう', pt: 'o mundo passa' },
+        { ja: '波が砕ける', pt: 'a onda se quebra' },
+      ],
+    },
+  },
+};
+
+// COSMOS está ARQUIVADO do alternador (a régua agora é água ↔ ukiyo-e), mas
+// fica aqui registrado — nada se perde; basta recolocá-lo no ciclo do toggle.
+export const MODOS = { agua: MODO_AGUA, cosmos: MODO_COSMOS, ukiyoe: MODO_UKIYOE };
